@@ -8,4 +8,8 @@
   </p>
 </template>
 
-<style scoped></style>
+<style lang="scss">
+* {
+  font-family: $font-family;
+}
+</style>
