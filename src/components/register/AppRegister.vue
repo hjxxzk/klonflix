@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import SplitLayout from '@/components/shared/SplitLayout.vue'
 import { ref, reactive, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth.ts'
 
 const router = useRouter()
+const auth = useAuthStore()
+const route = useRoute()
 
 const email = ref<string>('')
 const password = ref<string>('')
@@ -64,7 +67,12 @@ const handleLogin = () => {
   if (!validate()) {
     return
   }
-  router.push({ name: 'Overview' })
+
+  const user = { jwt: 'real-jwt-from-api' }
+  auth.setUser(user)
+
+  const redirect = (route.query.redirect as string) || '/overview'
+  router.push(redirect)
 }
 
 function onEmailInput() {

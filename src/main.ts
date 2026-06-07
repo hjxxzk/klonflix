@@ -6,11 +6,24 @@ import 'bootstrap-vue-3/dist/bootstrap-vue-3.css'
 
 import App from './App.vue'
 import router from './router'
+import { useAuthStore } from '@/stores/auth.ts'
 
 const app = createApp(App)
+const pinia = createPinia()
 
-app.use(createPinia())
+app.use(pinia)
 app.use(BootstrapVue3)
 app.use(router)
+
+const auth = useAuthStore(pinia)
+auth.initFromStorage()
+
+router.beforeEach((to) => {
+  if (to.meta?.requiresAuth) {
+    if (!auth.isLogged) {
+      return { name: 'Home', query: { redirect: to.fullPath } }
+    }
+  }
+})
 
 app.mount('#app')

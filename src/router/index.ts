@@ -26,6 +26,7 @@ const router = createRouter({
       path: '/overview',
       name: 'Overview',
       component: AppOverview,
+      meta: { requiresAuth: true },
     },
   ],
 })
