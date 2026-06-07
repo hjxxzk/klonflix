@@ -103,12 +103,15 @@ function onPasswordInput() {
 </template>
 
 <style scoped lang="scss">
+@use '@/styles/variables.scss' as *;
+
 .content {
   padding: 0 150px;
 }
 
 .image-container {
   position: relative;
+  border-left: 1px $white solid;
   height: 100%;
   width: 100%;
   display: flex;
