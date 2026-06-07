@@ -6,3 +6,26 @@ $black: #0A0A0A;
 $white: #B3B3B3;
 $accent: #0D1F16;
 $font-family: 'Inter', sans-serif;
+
+:deep(.btn-primary) {
+  background-color: $primary;
+  border-color: $primary;
+  color: black;
+
+  &:hover {
+    background-color: $secondary;
+    border-color: $secondary;
+    color: black;
+  }
+}
+
+:deep(.btn-outline-primary) {
+  color: $primary;
+  border-color: $primary;
+
+  &:hover {
+    background-color: $primary;
+    border-color: $primary;
+    color: black;
+  }
+}

@@ -1,12 +1,22 @@
 <script setup lang="ts">
 import { BButton } from 'bootstrap-vue-3'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 </script>
 
 <template>
   <div class="banner">
     <img src="../../resources/logo_clipped.PNG" alt="banner" />
     <h1>Magia kina na Twoim ekranie. Za darmo.</h1>
-    <b-button class="primary" variant="primary" size="lg" href="/register">Rozpocznij</b-button>
+    <b-button
+      class="primary"
+      @click="router.push({ name: 'Register' })"
+      variant="primary"
+      size="lg"
+      href="/register"
+      >Rozpocznij</b-button
+    >
   </div>
 </template>
 
@@ -28,17 +38,5 @@ import { BButton } from 'bootstrap-vue-3'
   max-width: 45%;
   width: 100%;
   height: auto;
-}
-
-:deep(.btn-primary) {
-  background-color: $primary;
-  border-color: $primary;
-  color: black;
-
-  &:hover {
-    background-color: $secondary;
-    border-color: $secondary;
-    color: black;
-  }
 }
 </style>
