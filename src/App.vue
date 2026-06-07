@@ -9,6 +9,13 @@
   font-family: $font-family;
 }
 
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
 body {
   color: $white;
   background: $black;
