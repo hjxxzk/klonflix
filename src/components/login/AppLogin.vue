@@ -3,6 +3,7 @@ import SplitLayout from '@/components/shared/SplitLayout.vue'
 import { ref, reactive, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.ts'
+import { ApiError } from '@/api/client'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -10,6 +11,8 @@ const route = useRoute()
 
 const email = ref<string>('')
 const password = ref<string>('')
+const isLoading = ref(false)
+const apiError = ref<string | null>(null)
 
 const errors = reactive<{ email: string | null; password: string | null }>({
   email: null,
@@ -39,16 +42,28 @@ const isFormValid = computed(() => {
   return email.value && password.value
 })
 
-const handleLogin = () => {
+const handleLogin = async () => {
   if (!validate()) {
     return
   }
 
-  const user = { jwt: 'real-jwt-from-api' }
-  auth.setUser(user)
+  isLoading.value = true
+  apiError.value = null
 
-  const redirect = (route.query.redirect as string) || '/overview'
-  router.push(redirect)
+  try {
+    await auth.login(email.value, password.value)
+
+    const redirect = (route.query.redirect as string) || '/overview'
+    router.push(redirect)
+  } catch (error) {
+    if (error instanceof ApiError) {
+      apiError.value = error.message
+    } else {
+      apiError.value = 'Wystąpił błąd podczas logowania'
+    }
+  } finally {
+    isLoading.value = false
+  }
 }
 
 function onEmailInput() {
@@ -95,8 +110,12 @@ function onPasswordInput() {
             <div class="invalid-feedback" v-if="errors.password">{{ errors.password }}</div>
           </div>
 
-          <button type="submit" class="btn btn-primary mt-3" :disabled="!isFormValid">
-            Zaloguj się
+          <div v-if="apiError" class="alert alert-danger mt-3" role="alert">
+            {{ apiError }}
+          </div>
+
+          <button type="submit" class="btn btn-primary mt-3" :disabled="!isFormValid || isLoading">
+            {{ isLoading ? 'Logowanie...' : 'Zaloguj się' }}
           </button>
         </form>
       </div>

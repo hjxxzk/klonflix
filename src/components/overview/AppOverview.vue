@@ -1,7 +1,28 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import AppNavbarOverview from '@/components/overview/AppNavbarOverview.vue'
+</script>
 
 <template>
-  <h1>tu jestem</h1>
+  <div class="page">
+    <AppNavbarOverview />
+    <main class="content">
+      <h1>tu jestem</h1>
+    </main>
+  </div>
 </template>
 
-<style scoped lang="scss"></style>
+<style scoped lang="scss">
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+</style>

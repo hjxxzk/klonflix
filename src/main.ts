@@ -19,10 +19,12 @@ const auth = useAuthStore(pinia)
 auth.initFromStorage()
 
 router.beforeEach((to) => {
-  if (to.meta?.requiresAuth) {
-    if (!auth.isLogged) {
-      return { name: 'Home', query: { redirect: to.fullPath } }
-    }
+  if (to.meta?.requiresAuth && !auth.isLogged) {
+    return { name: 'Login', query: { redirect: to.fullPath } }
+  }
+
+  if (to.meta?.guestOnly && auth.isLogged) {
+    return { name: 'Overview' }
   }
 })
 

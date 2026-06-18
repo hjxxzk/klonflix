@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import * as authApi from '@/api/auth'
 import type { UserData } from '@/types/UserData'
 
 export const useAuthStore = defineStore('auth', {
@@ -6,7 +7,11 @@ export const useAuthStore = defineStore('auth', {
     user: null as null | UserData,
   }),
   getters: {
-    isLogged: (state) => !!state.user,
+    isLogged: (state) => {
+      if (!state.user) return false
+      const now = Math.floor(Date.now() / 1000)
+      return state.user.expiresAt > now
+    },
   },
   actions: {
     setUser(user: UserData | null) {
@@ -24,7 +29,23 @@ export const useAuthStore = defineStore('auth', {
         }
       }
     },
-    logout() {
+    async login(email: string, password: string) {
+      const user = await authApi.login({ email, password })
+      this.setUser(user)
+    },
+    async register(email: string, password: string) {
+      const user = await authApi.register({ email, password })
+      this.setUser(user)
+    },
+    async logout() {
+      const token = this.user?.accessToken
+      if (token) {
+        try {
+          await authApi.logout(token)
+        } catch {
+          // clear local session even when server logout fails
+        }
+      }
       this.setUser(null)
     },
   },
