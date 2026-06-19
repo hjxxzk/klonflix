@@ -8,6 +8,7 @@ import AppBrowseMovie from '@/components/browse/AppBrowseMovie.vue'
 import AppSearch from '@/components/search/AppSearch.vue'
 import AppWatchlist from '@/components/watchlist/AppWatchlist.vue'
 import AppAdminLibrary from '@/components/admin/AppAdminLibrary.vue'
+import AppPlayback from '@/components/playback/AppPlayback.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -73,6 +74,12 @@ const router = createRouter({
       name: 'AdminLibrary',
       component: AppAdminLibrary,
       meta: { requiresAuth: true, requiresLibraryAdmin: true },
+    },
+    {
+      path: '/play/:contentId',
+      name: 'Playback',
+      component: AppPlayback,
+      meta: { requiresAuth: true },
     },
   ],
 })
