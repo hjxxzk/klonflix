@@ -1,3 +1,9 @@
+export type UserRole = 'VIEWER' | 'LIBRARY_ADMIN'
+
 export interface UserData {
-  jwt: string
+  accessToken: string
+  refreshToken: string
+  expiresAt: number
+  viewerId: string
+  role: UserRole
 }

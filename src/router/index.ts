@@ -11,16 +11,19 @@ const router = createRouter({
       path: '/',
       name: 'Home',
       component: AppHome,
+      meta: { guestOnly: true },
     },
     {
       path: '/login',
       name: 'Login',
       component: AppLogin,
+      meta: { guestOnly: true },
     },
     {
       path: '/register',
       name: 'Register',
       component: AppRegister,
+      meta: { guestOnly: true },
     },
     {
       path: '/overview',

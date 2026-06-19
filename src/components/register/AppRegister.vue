@@ -3,6 +3,7 @@ import SplitLayout from '@/components/shared/SplitLayout.vue'
 import { ref, reactive, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.ts'
+import { ApiError } from '@/api/client'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -11,6 +12,8 @@ const route = useRoute()
 const email = ref<string>('')
 const password = ref<string>('')
 const passwordConfirm = ref<string>('')
+const isLoading = ref(false)
+const apiError = ref<string | null>(null)
 
 const errors = reactive<{
   email: string | null
@@ -63,16 +66,29 @@ const isFormValid = computed(() => {
     !errors.passwordConfirm
   )
 })
-const handleLogin = () => {
+
+const handleRegister = async () => {
   if (!validate()) {
     return
   }
 
-  const user = { jwt: 'real-jwt-from-api' }
-  auth.setUser(user)
+  isLoading.value = true
+  apiError.value = null
 
-  const redirect = (route.query.redirect as string) || '/overview'
-  router.push(redirect)
+  try {
+    await auth.register(email.value, password.value)
+
+    const redirect = (route.query.redirect as string) || '/overview'
+    router.push(redirect)
+  } catch (error) {
+    if (error instanceof ApiError) {
+      apiError.value = error.message
+    } else {
+      apiError.value = 'Wystąpił błąd podczas rejestracji'
+    }
+  } finally {
+    isLoading.value = false
+  }
 }
 
 function onEmailInput() {
@@ -97,7 +113,7 @@ function onPasswordConfirmInput() {
 
     <template #right>
       <div class="d-flex flex-column align-items-left justify-content-center h-100 gap-4 content">
-        <form class="login-form" @submit.prevent="handleLogin" novalidate>
+        <form class="login-form" @submit.prevent="handleRegister" novalidate>
           <h1 class="display-6">Utwórz konto</h1>
           <div class="mb-3">
             <label for="email" class="form-label">Email</label>
@@ -146,8 +162,12 @@ function onPasswordConfirmInput() {
             </div>
           </div>
 
-          <button type="submit" class="btn btn-primary mt-3" :disabled="!isFormValid">
-            Zarejestruj
+          <div v-if="apiError" class="alert alert-danger mt-3" role="alert">
+            {{ apiError }}
+          </div>
+
+          <button type="submit" class="btn btn-primary mt-3" :disabled="!isFormValid || isLoading">
+            {{ isLoading ? 'Rejestrowanie...' : 'Zarejestruj' }}
           </button>
         </form>
       </div>
