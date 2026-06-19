@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth.ts'
-import { completePlayback, saveProgress, saveProgressOnUnload } from '@/api/playback'
+import { completePlayback, saveProgress, saveProgressOnUnload, startPlayback } from '@/api/playback'
 import type { ContentPlaybackData } from '@/types/ContentPlayback'
 import { extractYouTubeVideoId, loadYouTubeApi } from '@/utils/youtube'
 
@@ -24,6 +24,8 @@ let player: YT.Player | null = null
 let lastSavedPosition = -1
 let hasCompleted = false
 let isSavingProgress = false
+let wasPaused = false
+let isResumingPlayback = false
 
 function getCurrentPosition(): number {
   if (!player) {
@@ -56,7 +58,30 @@ async function persistProgress(positionSeconds: number): Promise<void> {
 }
 
 async function handlePause(): Promise<void> {
+  wasPaused = true
   await persistProgress(getCurrentPosition())
+}
+
+async function handleResume(): Promise<void> {
+  if (!wasPaused || isResumingPlayback) {
+    return
+  }
+
+  const token = auth.user?.accessToken
+  if (!token) {
+    return
+  }
+
+  isResumingPlayback = true
+
+  try {
+    await startPlayback(props.content.contentId, token)
+    wasPaused = false
+  } catch {
+    // Resume failures should not block playback.
+  } finally {
+    isResumingPlayback = false
+  }
 }
 
 async function handleEnded(): Promise<void> {
@@ -95,6 +120,11 @@ function handleUnload(): void {
 function handleStateChange(event: { data: number; target: YT.Player }): void {
   if (event.data === YT.PlayerState.PAUSED) {
     void handlePause()
+    return
+  }
+
+  if (event.data === YT.PlayerState.PLAYING) {
+    void handleResume()
     return
   }
 
