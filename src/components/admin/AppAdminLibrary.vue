@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { BButton } from 'bootstrap-vue-3'
 import AppNavbarAdmin from '@/components/admin/AppNavbarAdmin.vue'
+import ContentCard from '@/components/admin/ContentCard.vue'
+import SeriesDetailPanel from '@/components/admin/SeriesDetailPanel.vue'
 import ContentFormModal from '@/components/admin/ContentFormModal.vue'
 import SeasonFormModal from '@/components/admin/SeasonFormModal.vue'
 import EpisodeFormModal from '@/components/admin/EpisodeFormModal.vue'
@@ -26,13 +28,12 @@ import type {
   SeasonRequest,
   SeasonResponse,
 } from '@/types/Content'
-import { CONTENT_TYPE_LABELS, GENRES } from '@/types/Content'
 
 const auth = useAuthStore()
 
 const contents = ref<ContentResponse[]>([])
 const currentPage = ref(1)
-const pageSize = ref(10)
+const pageSize = ref(12)
 const itemCount = ref(0)
 const isLoading = ref(false)
 const apiError = ref<string | null>(null)
@@ -58,9 +59,9 @@ const editingEpisode = ref<EpisodeResponse | null>(null)
 const hasNextPage = computed(() => itemCount.value === pageSize.value)
 const hasPreviousPage = computed(() => currentPage.value > 1)
 
-function genreLabel(genre: string): string {
-  return GENRES.find((item) => item.value === genre)?.label ?? genre
-}
+const expandedSeries = computed(() =>
+  contents.value.find((content) => content.id === expandedSeriesId.value) ?? null,
+)
 
 function clearMessages(): void {
   apiError.value = null
@@ -94,6 +95,13 @@ async function loadLibrary(): Promise<void> {
     const response = await browseLibrary(token, currentPage.value, pageSize.value)
     contents.value = response.contents
     itemCount.value = response.pagination.itemCount
+
+    if (
+      expandedSeriesId.value &&
+      !contents.value.some((content) => content.id === expandedSeriesId.value)
+    ) {
+      expandedSeriesId.value = null
+    }
   } catch (error) {
     handleApiFailure(error, 'Nie udało się pobrać biblioteki treści.')
   } finally {
@@ -103,11 +111,12 @@ async function loadLibrary(): Promise<void> {
 
 function goToPage(page: number): void {
   currentPage.value = page
+  expandedSeriesId.value = null
   void loadLibrary()
 }
 
-function toggleSeries(contentId: string): void {
-  expandedSeriesId.value = expandedSeriesId.value === contentId ? null : contentId
+function toggleSeries(content: ContentResponse): void {
+  expandedSeriesId.value = expandedSeriesId.value === content.id ? null : content.id
 }
 
 function openCreateContent(type: ContentType): void {
@@ -166,6 +175,9 @@ async function handleDeleteContent(content: ContentResponse): Promise<void> {
 
   try {
     await deleteContent(token, content.id)
+    if (expandedSeriesId.value === content.id) {
+      expandedSeriesId.value = null
+    }
     showSuccess('Treść została usunięta.')
     await loadLibrary()
   } catch (error) {
@@ -260,6 +272,14 @@ async function handleEpisodeSave(payload: EpisodeRequest): Promise<void> {
   }
 }
 
+function handleEditEpisode(season: SeasonResponse, episode: EpisodeResponse): void {
+  const series = expandedSeries.value
+  if (!series) {
+    return
+  }
+  openEditEpisode(series, season, episode)
+}
+
 onMounted(() => {
   void loadLibrary()
 })
@@ -272,167 +292,70 @@ onMounted(() => {
     <main class="content">
       <section class="admin-panel">
         <header class="admin-header">
-          <div>
+          <div class="admin-header__intro">
             <p class="admin-label">Panel administratora</p>
-            <h1 class="admin-title">Zarządzanie biblioteką treści</h1>
+            <h1 class="admin-title">Biblioteka treści</h1>
+            <p class="admin-subtitle">Zarządzaj filmami i serialami w katalogu platformy.</p>
           </div>
 
           <div class="admin-actions">
-            <b-button variant="primary" @click="openCreateContent('MOVIE')">Dodaj film</b-button>
+            <b-button variant="primary" @click="openCreateContent('MOVIE')">+ Film</b-button>
             <b-button variant="outline-primary" @click="openCreateContent('SERIES')">
-              Dodaj serial
+              + Serial
             </b-button>
           </div>
         </header>
 
-        <div v-if="apiError" class="alert alert-danger" role="alert">{{ apiError }}</div>
-        <div v-if="successMessage" class="alert alert-success" role="alert">
+        <div v-if="apiError" class="alert alert-danger toast" role="alert">{{ apiError }}</div>
+        <div v-if="successMessage" class="alert alert-success toast" role="alert">
           {{ successMessage }}
         </div>
 
-        <div v-if="isLoading" class="status-message">Ładowanie biblioteki...</div>
-
-        <div v-else class="library-table-wrapper">
-          <table class="table library-table">
-            <thead>
-              <tr>
-                <th>Tytuł</th>
-                <th>Typ</th>
-                <th>Gatunek</th>
-                <th>Rok</th>
-                <th class="actions-col">Akcje</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="content in contents" :key="content.id">
-                <tr>
-                  <td>
-                    <button
-                      v-if="content.type === 'SERIES'"
-                      type="button"
-                      class="series-toggle"
-                      @click="toggleSeries(content.id)"
-                    >
-                      {{ expandedSeriesId === content.id ? '▼' : '▶' }}
-                    </button>
-                    {{ content.title }}
-                  </td>
-                  <td>{{ CONTENT_TYPE_LABELS[content.type] }}</td>
-                  <td>{{ genreLabel(content.genre) }}</td>
-                  <td>{{ content.releaseYear }}</td>
-                  <td class="actions-col">
-                    <div class="row-actions">
-                      <b-button size="sm" variant="outline-primary" @click="openEditContent(content)">
-                        Edytuj
-                      </b-button>
-                      <b-button
-                        size="sm"
-                        variant="outline-primary"
-                        @click="handleDeleteContent(content)"
-                      >
-                        Usuń
-                      </b-button>
-                    </div>
-                  </td>
-                </tr>
-
-                <tr v-if="content.type === 'SERIES' && expandedSeriesId === content.id">
-                  <td colspan="5" class="series-details">
-                    <div class="series-panel">
-                      <div class="series-panel-header">
-                        <h3>Sezony serialu</h3>
-                        <b-button size="sm" variant="primary" @click="openCreateSeason(content)">
-                          Dodaj sezon
-                        </b-button>
-                      </div>
-
-                      <p v-if="content.seasons.length === 0" class="empty-message">
-                        Brak sezonów. Dodaj pierwszy sezon, aby móc dodawać odcinki.
-                      </p>
-
-                      <div
-                        v-for="season in content.seasons"
-                        :key="season.id"
-                        class="season-block"
-                      >
-                        <div class="season-header">
-                          <h4>Sezon {{ season.number }} — {{ season.title }}</h4>
-                          <div class="row-actions">
-                            <b-button
-                              size="sm"
-                              variant="outline-primary"
-                              @click="openEditSeason(content, season)"
-                            >
-                              Edytuj sezon
-                            </b-button>
-                            <b-button
-                              size="sm"
-                              variant="primary"
-                              @click="openCreateEpisode(content, season)"
-                            >
-                              Dodaj odcinek
-                            </b-button>
-                          </div>
-                        </div>
-
-                        <table v-if="season.episodes.length > 0" class="table nested-table">
-                          <thead>
-                            <tr>
-                              <th>Nr</th>
-                              <th>Tytuł</th>
-                              <th>Czas (s)</th>
-                              <th class="actions-col">Akcje</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr v-for="episode in season.episodes" :key="episode.id">
-                              <td>{{ episode.number }}</td>
-                              <td>{{ episode.title }}</td>
-                              <td>{{ episode.durationSeconds }}</td>
-                              <td class="actions-col">
-                                <b-button
-                                  size="sm"
-                                  variant="outline-primary"
-                                  @click="openEditEpisode(content, season, episode)"
-                                >
-                                  Edytuj
-                                </b-button>
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-
-                        <p v-else class="empty-message">Brak odcinków w tym sezonie.</p>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              </template>
-
-              <tr v-if="contents.length === 0">
-                <td colspan="5" class="empty-message">Biblioteka jest pusta.</td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-if="isLoading" class="status-message">
+          <span class="loader" aria-hidden="true" />
+          Ładowanie biblioteki...
         </div>
 
-        <footer class="pagination-bar">
+        <div v-else-if="contents.length === 0" class="empty-state">
+          <p>Biblioteka jest pusta.</p>
+          <b-button variant="primary" @click="openCreateContent('MOVIE')">Dodaj pierwszy film</b-button>
+        </div>
+
+        <div v-else class="content-grid">
+          <ContentCard
+            v-for="content in contents"
+            :key="content.id"
+            :content="content"
+            :selected="expandedSeriesId === content.id"
+            @edit="openEditContent(content)"
+            @delete="handleDeleteContent(content)"
+            @select="toggleSeries(content)"
+          />
+        </div>
+
+        <SeriesDetailPanel
+          v-if="expandedSeries"
+          :series="expandedSeries"
+          @close="expandedSeriesId = null"
+          @add-season="openCreateSeason(expandedSeries)"
+          @edit-season="openEditSeason(expandedSeries, $event)"
+          @add-episode="openCreateEpisode(expandedSeries, $event)"
+          @edit-episode="handleEditEpisode"
+        />
+
+        <footer v-if="!isLoading && contents.length > 0" class="pagination-bar">
           <span class="pagination-info">
-            Strona {{ currentPage }} · {{ itemCount }} pozycji na stronie
+            Strona {{ currentPage }} · {{ itemCount }} pozycji
           </span>
           <div class="pagination-actions">
             <b-button
               variant="outline-primary"
-              :disabled="!hasPreviousPage || isLoading"
+              :disabled="!hasPreviousPage"
               @click="goToPage(currentPage - 1)"
             >
               Poprzednia
             </b-button>
-            <b-button
-              variant="outline-primary"
-              :disabled="!hasNextPage || isLoading"
-              @click="goToPage(currentPage + 1)"
-            >
+            <b-button variant="outline-primary" :disabled="!hasNextPage" @click="goToPage(currentPage + 1)">
               Następna
             </b-button>
           </div>
@@ -482,11 +405,14 @@ onMounted(() => {
 
 .content {
   flex: 1 1 auto;
-  padding: 2rem 1.5rem 3rem;
+  padding: 2rem clamp(1rem, 4vw, 2.5rem) 3rem;
+  background:
+    radial-gradient(ellipse at top right, rgba($primary, 0.08), transparent 45%),
+    radial-gradient(ellipse at bottom left, rgba($primary, 0.04), transparent 40%);
 }
 
 .admin-panel {
-  max-width: 1200px;
+  max-width: 1280px;
   margin: 0 auto;
 }
 
@@ -495,23 +421,31 @@ onMounted(() => {
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
 }
 
 .admin-label {
-  margin: 0 0 0.25rem;
+  margin: 0 0 0.35rem;
   color: $primary;
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 .admin-title {
   margin: 0;
-  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-size: clamp(1.85rem, 3.5vw, 2.5rem);
+  font-weight: 700;
   color: $white;
+}
+
+.admin-subtitle {
+  margin: 0.5rem 0 0;
+  max-width: 36rem;
+  color: rgba($white, 0.55);
+  font-size: 0.95rem;
 }
 
 .admin-actions {
@@ -520,91 +454,46 @@ onMounted(() => {
   gap: 0.75rem;
 }
 
-.status-message,
-.empty-message {
-  color: rgba($white, 0.75);
+.toast {
+  margin-bottom: 1.25rem;
+  border-radius: 10px;
 }
 
-.library-table-wrapper {
-  overflow-x: auto;
-  border: 1px solid rgba($white, 0.12);
-  border-radius: 8px;
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 1.25rem;
 }
 
-.library-table,
-.nested-table {
-  margin-bottom: 0;
-  color: $white;
-
-  th,
-  td {
-    vertical-align: middle;
-    border-color: rgba($white, 0.1);
-  }
-
-  thead th {
-    color: rgba($white, 0.85);
-    font-weight: 600;
-    background: $accent;
-  }
-}
-
-.actions-col {
-  width: 1%;
-  white-space: nowrap;
-}
-
-.row-actions {
+.status-message {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.series-toggle {
-  margin-right: 0.5rem;
-  border: none;
-  background: transparent;
-  color: $primary;
-  cursor: pointer;
-}
-
-.series-details {
-  background: rgba($accent, 0.65);
-}
-
-.series-panel {
-  padding: 1rem;
-}
-
-.series-panel-header,
-.season-header {
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 0.75rem;
-  margin-bottom: 1rem;
+  padding: 4rem 1rem;
+  color: rgba($white, 0.65);
 }
 
-.series-panel-header h3,
-.season-header h4 {
-  margin: 0;
-  color: $white;
+.loader {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid rgba($primary, 0.25);
+  border-top-color: $primary;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
-.season-block {
-  padding: 1rem 0;
-  border-top: 1px solid rgba($white, 0.08);
-
-  &:first-of-type {
-    border-top: none;
-    padding-top: 0;
-  }
-}
-
-.nested-table {
-  background: rgba($black, 0.35);
-  border-radius: 6px;
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 4rem 1rem;
+  text-align: center;
+  color: rgba($white, 0.65);
+  border: 1px dashed rgba($white, 0.12);
+  border-radius: 16px;
+  background: rgba($accent, 0.35);
 }
 
 .pagination-bar {
@@ -613,11 +502,14 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin-top: 1.5rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba($white, 0.08);
 }
 
 .pagination-info {
-  color: rgba($white, 0.75);
+  color: rgba($white, 0.55);
+  font-size: 0.9rem;
 }
 
 .pagination-actions {
@@ -629,5 +521,11 @@ onMounted(() => {
   background: rgba($primary, 0.12);
   border-color: rgba($primary, 0.35);
   color: $white;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>
