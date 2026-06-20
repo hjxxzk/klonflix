@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import TopItem from '@/components/overview/TopItem.vue'
+import { useAuthStore } from '@/stores/auth'
+import { getRecommendedLibrary } from '@/api/library'
 
 type Item = {
   id: string
@@ -8,17 +10,15 @@ type Item = {
   title?: string
 }
 
-const REMOTE_THUMB = 'https://i.ytimg.com/vi/3IZ_5iJkbM4/hqdefault.jpg'
-
-const items: Item[] = Array.from({ length: 10 }).map((_, i) => ({
-  id: String(i + 1),
-  thumbnail: REMOTE_THUMB,
-  title: `Top item ${i + 1}`,
-}))
+const items = ref<Item[]>([])
+const isLoading = ref(false)
+const loadError = ref<string | null>(null)
 
 const track = ref<HTMLElement | null>(null)
 const canScrollLeft = ref(false)
 const canScrollRight = ref(true)
+
+let controller: AbortController | null = null
 
 function updateScrollButtons() {
   if (!track.value) return
@@ -43,18 +43,69 @@ function onTrackKeydown(e: KeyboardEvent) {
   }
 }
 
+async function fetchRecommendations() {
+  const auth = useAuthStore()
+  const token = auth.user?.accessToken ?? ''
+
+  if (controller) {
+    controller.abort()
+  }
+  controller = new AbortController()
+  isLoading.value = true
+  loadError.value = null
+
+  try {
+    const data = await getRecommendedLibrary(token, controller.signal)
+    items.value = data.map((c) => ({
+      id: c.id,
+      thumbnail: c.thumbnailUrl,
+      title: c.title || undefined,
+    }))
+
+    await nextTick()
+    updateScrollButtons()
+  } catch (err: unknown) {
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      'name' in err &&
+      (err as { name?: unknown }).name === 'AbortError'
+    ) {
+      return
+    }
+
+    if (err instanceof Error) {
+      loadError.value = err.message
+    } else {
+      loadError.value = String(err)
+    }
+
+    items.value = Array.from({ length: 6 }).map((_, i) => ({
+      id: `fallback-${i + 1}`,
+      thumbnail: '',
+      title: `Top item ${i + 1}`,
+    }))
+  } finally {
+    isLoading.value = false
+  }
+}
+
 onMounted(() => {
   updateScrollButtons()
   const el = track.value
-  if (!el) return
-  el.addEventListener('scroll', updateScrollButtons, { passive: true })
+  if (el) {
+    el.addEventListener('scroll', updateScrollButtons, { passive: true })
+  }
   window.addEventListener('resize', updateScrollButtons)
+
+  fetchRecommendations()
 })
 
 onBeforeUnmount(() => {
   const el = track.value
   if (el) el.removeEventListener('scroll', updateScrollButtons)
   window.removeEventListener('resize', updateScrollButtons)
+  if (controller) controller.abort()
 })
 </script>
 
@@ -73,6 +124,17 @@ onBeforeUnmount(() => {
     <div class="track" ref="track" role="list" tabindex="0" @keydown="onTrackKeydown">
       <div class="track-item" v-for="(item, i) in items" :key="item.id" role="listitem">
         <TopItem :rank="i + 1" :thumbnail="item.thumbnail" :id="item.id" :name="item.title" />
+      </div>
+
+      <div v-if="isLoading" class="track-item" aria-hidden="true">
+        <div
+          style="
+            width: 260px;
+            height: 88px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 6px;
+          "
+        ></div>
       </div>
     </div>
 

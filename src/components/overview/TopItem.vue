@@ -139,13 +139,12 @@ function onKeydown(e: KeyboardEvent) {
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
   text-align: right;
   min-width: 44px;
-  font-size: clamp(18px, 3.2vw, 36px);
+  font-size: clamp(18px, 3.2vw, 44px);
   line-height: 1;
 }
 
 .thumb {
-  height: 88px;
-  width: auto;
+  width: 156px;
   border-radius: 6px;
   object-fit: cover;
   display: block;
