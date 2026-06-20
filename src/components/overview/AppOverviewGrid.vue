@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getLibraryPage, type LibraryItem } from '@/api/library'
@@ -10,21 +10,16 @@ const auth = useAuthStore()
 
 const items = ref<Item[]>([])
 const total = ref(0)
+const hasNextPage = ref(false)
 
 const router = useRouter()
 
-const pageSize = ref(20)
+const pageSize = ref(8)
 const currentPage = ref(1)
 const isLoading = ref(false)
 const error = ref<string | null>(null)
 
 let controller: AbortController | null = null
-
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
-
-const pages = computed(() => Array.from({ length: totalPages.value }, (_, i) => i + 1))
-
-const pagedItems = computed(() => items.value)
 
 function goToBrowse(id?: string | number) {
   if (id === undefined || id === null) return
@@ -33,14 +28,13 @@ function goToBrowse(id?: string | number) {
 
 function setPage(n: number) {
   if (n < 1) n = 1
-  if (n > totalPages.value) n = totalPages.value
   currentPage.value = n
   const el = document.querySelector('.overview-grid')
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 function prevPage() {
-  setPage(currentPage.value - 1)
+  if (currentPage.value > 1) setPage(currentPage.value - 1)
 }
 
 function nextPage() {
@@ -48,10 +42,10 @@ function nextPage() {
 }
 
 async function loadPage() {
-  // cancel previous
   if (!auth.user?.accessToken) {
     items.value = []
     total.value = 0
+    hasNextPage.value = false
     return
   }
 
@@ -63,17 +57,17 @@ async function loadPage() {
   error.value = null
 
   try {
-    const resp = await getLibraryPage(
-      auth.user.accessToken,
-      currentPage.value,
-      pageSize.value,
-      signal
-    )
-    items.value = resp.items
-    total.value = resp.total
-  } catch (err: any) {
-    if (err.name === 'AbortError') return
-    error.value = err.message || String(err)
+    const [currentResp, nextResp] = await Promise.all([
+      getLibraryPage(auth.user.accessToken, currentPage.value, pageSize.value, signal),
+      getLibraryPage(auth.user.accessToken, currentPage.value + 1, pageSize.value, signal),
+    ])
+
+    items.value = currentResp
+    total.value = currentResp.length
+    hasNextPage.value = nextResp.length > 0
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === 'AbortError') return
+    error.value = err instanceof Error ? err.message : String(err)
   } finally {
     isLoading.value = false
   }
@@ -83,7 +77,7 @@ onMounted(() => {
   loadPage()
 })
 
-watch([currentPage, pageSize, () => auth.user?.accessToken], () => {
+watch([currentPage, () => auth.user?.accessToken], () => {
   loadPage()
 })
 
@@ -98,7 +92,7 @@ onBeforeUnmount(() => {
       <div v-if="isLoading" class="grid-loader">Ładowanie...</div>
       <div v-if="error" class="grid-error">{{ error }}</div>
       <button
-        v-for="item in pagedItems"
+        v-for="item in items"
         :key="item.id"
         class="card"
         type="button"
@@ -109,7 +103,7 @@ onBeforeUnmount(() => {
       >
         <span class="thumb-wrap">
           <img
-            :src="item.thumbnail || ''"
+            :src="item.thumbnailUrl || ''"
             :alt="item.title || 'thumbnail'"
             loading="lazy"
             draggable="false"
@@ -121,7 +115,7 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div class="pagination" v-if="pages.length > 1">
+    <div class="pagination" v-if="currentPage > 1 || hasNextPage">
       <button
         class="page-btn"
         @click="prevPage"
@@ -131,28 +125,19 @@ onBeforeUnmount(() => {
         ‹
       </button>
 
-      <button
-        v-for="p in pages"
-        :key="p"
-        class="page-number"
-        :aria-current="p === currentPage ? 'page' : undefined"
-        :class="{ active: p === currentPage }"
-        @click="setPage(p)"
-      >
-        {{ p }}
-      </button>
+      <span class="page-info">{{ currentPage }}</span>
 
       <button
         class="page-btn"
         @click="nextPage"
-        :disabled="currentPage === pages.length"
+        :disabled="!hasNextPage"
         aria-label="Następna strona"
       >
         ›
       </button>
     </div>
 
-    <div class="no-items" v-if="items.length === 0">Brak pozycji do wyświetlenia.</div>
+    <div class="no-items" v-if="error">Brak pozycji do wyświetlenia.</div>
   </div>
 </template>
 
@@ -286,6 +271,12 @@ onBeforeUnmount(() => {
   opacity: 0.35;
   cursor: default;
   pointer-events: none;
+}
+
+.page-info {
+  color: $white;
+  padding: 0 8px;
+  font-size: 14px;
 }
 
 .no-items {
