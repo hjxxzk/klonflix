@@ -3,6 +3,7 @@ import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getLibraryPage, type LibraryItem } from '@/api/library'
+import { ContentType } from '@/types/LibraryContent.ts'
 
 type Item = LibraryItem
 
@@ -21,9 +22,16 @@ const error = ref<string | null>(null)
 
 let controller: AbortController | null = null
 
-function goToBrowse(id?: string | number) {
+function goToBrowse(id?: string | number, contentType?: ContentType) {
   if (id === undefined || id === null) return
-  router.push(`/browse/${id}`)
+  switch (contentType) {
+    case ContentType.MOVIE:
+      router.push(`/browse/movie/${id}`)
+      return
+    case ContentType.SERIES:
+      router.push(`/browse/series/${id}`)
+      return
+  }
 }
 
 function setPage(n: number) {
@@ -96,7 +104,7 @@ onBeforeUnmount(() => {
         :key="item.id"
         class="card"
         type="button"
-        @click="goToBrowse(item.id)"
+        @click="goToBrowse(item.id, item.contentType)"
         @keydown.enter.prevent="goToBrowse(item.id)"
         @keydown.space.prevent="goToBrowse(item.id)"
         :aria-label="`Open ${item.title || 'item'}`"

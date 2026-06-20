@@ -1,6 +1,8 @@
 import { apiFetch } from './client'
 import type { ContentResponse, LibraryItem } from '@/types/LibraryContent.ts'
 
+export type { ContentResponse, LibraryItem }
+
 export async function getLibraryPage(
   bearerToken: string,
   page = 1,

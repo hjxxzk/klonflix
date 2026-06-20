@@ -5,6 +5,7 @@ export type LibraryItem = {
   releaseYear?: number
   available?: boolean
   thumbnailUrl?: string
+  contentType?: ContentType
 }
 
 export enum ContentType {

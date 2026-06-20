@@ -3,11 +3,13 @@ import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import TopItem from '@/components/overview/TopItem.vue'
 import { useAuthStore } from '@/stores/auth'
 import { getRecommendedLibrary } from '@/api/library'
+import type { ContentType } from '@/types/LibraryContent.ts'
 
 type Item = {
   id: string
   thumbnail?: string
   title?: string
+  contentType?: ContentType
 }
 
 const items = ref<Item[]>([])
@@ -60,6 +62,7 @@ async function fetchRecommendations() {
       id: c.id,
       thumbnail: c.thumbnailUrl,
       title: c.title || undefined,
+      contentType: c.contentType || undefined,
     }))
 
     await nextTick()
@@ -123,7 +126,13 @@ onBeforeUnmount(() => {
 
     <div class="track" ref="track" role="list" tabindex="0" @keydown="onTrackKeydown">
       <div class="track-item" v-for="(item, i) in items" :key="item.id" role="listitem">
-        <TopItem :rank="i + 1" :thumbnail="item.thumbnail" :id="item.id" :name="item.title" />
+        <TopItem
+          :rank="i + 1"
+          :thumbnail="item.thumbnail"
+          :id="item.id"
+          :name="item.title"
+          :content-type="item.contentType"
+        />
       </div>
 
       <div v-if="isLoading" class="track-item" aria-hidden="true">

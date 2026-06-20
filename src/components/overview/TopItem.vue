@@ -2,12 +2,14 @@
 import { computed, ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import placeholder from '@/resources/logo.png'
+import { ContentType } from '@/types/LibraryContent.ts'
 
 const props = defineProps<{
   rank: number
   thumbnail?: string
   id: string | number
   name?: string
+  contentType?: ContentType
 }>()
 
 const router = useRouter()
@@ -47,7 +49,14 @@ onMounted(() => {
 
 function goToBrowse() {
   if (props.id === undefined || props.id === null) return
-  router.push(`/browse/${props.id}`)
+  switch (props.contentType) {
+    case ContentType.MOVIE:
+      router.push(`/browse/movie/${props.id}`)
+      return
+    case ContentType.SERIES:
+      router.push(`/browse/series/${props.id}`)
+      return
+  }
 }
 
 function onKeydown(e: KeyboardEvent) {
