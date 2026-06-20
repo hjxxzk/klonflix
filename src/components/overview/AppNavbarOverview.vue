@@ -24,3 +24,7 @@ async function handleLogout() {
     </template>
   </AppNavbar>
 </template>
+
+<style>
+@use '@/styles/variables.scss' as *;
+</style>
