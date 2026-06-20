@@ -7,6 +7,7 @@ import AppBrowseSeries from '@/components/browse/AppBrowseSeries.vue'
 import AppBrowseMovie from '@/components/browse/AppBrowseMovie.vue'
 import AppSearch from '@/components/search/AppSearch.vue'
 import AppWatchlist from '@/components/watchlist/AppWatchlist.vue'
+import AppAdminLibrary from '@/components/admin/AppAdminLibrary.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -65,6 +66,13 @@ const router = createRouter({
       name: 'Watchlist',
       component: AppWatchlist,
       meta: { requiresAuth: true },
+    },
+    {
+
+      path: '/admin/library',
+      name: 'AdminLibrary',
+      component: AppAdminLibrary,
+      meta: { requiresAuth: true, requiresLibraryAdmin: true },
     },
   ],
 })

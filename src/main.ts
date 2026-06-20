@@ -23,6 +23,10 @@ router.beforeEach((to) => {
     return { name: 'Login', query: { redirect: to.fullPath } }
   }
 
+  if (to.meta?.requiresLibraryAdmin && auth.user?.role !== 'LIBRARY_ADMIN') {
+    return { name: 'Overview' }
+  }
+
   if (to.meta?.guestOnly && auth.isLogged) {
     return { name: 'Overview' }
   }

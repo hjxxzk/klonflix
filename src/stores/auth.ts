@@ -12,6 +12,7 @@ export const useAuthStore = defineStore('auth', {
       const now = Math.floor(Date.now() / 1000)
       return state.user.expiresAt > now
     },
+    isLibraryAdmin: (state) => state.user?.role === 'LIBRARY_ADMIN',
   },
   actions: {
     setUser(user: UserData | null) {
