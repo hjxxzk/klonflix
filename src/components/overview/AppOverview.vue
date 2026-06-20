@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import AppNavbarOverview from '@/components/overview/AppNavbarOverview.vue'
+const { id } = defineProps<{ id?: string }>()
 </script>
 
 <template>
   <div class="page">
     <AppNavbarOverview />
     <main class="content">
-      <h1>tu jestem</h1>
+      <h1>tu jestem <span v-if="id">- ID: {{ id }}</span></h1>
     </main>
   </div>
 </template>
