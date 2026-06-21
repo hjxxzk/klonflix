@@ -5,6 +5,10 @@ export interface ContentPlaybackData {
   videoLanguages: string[]
 }
 
+export interface ContentPlaybackDetails extends ContentPlaybackData {
+  title: string
+}
+
 export interface PlaybackResponse {
   playbackId: string
   uri: string

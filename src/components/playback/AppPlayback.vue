@@ -1,36 +1,54 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import AppNavbarOverview from '@/components/overview/AppNavbarOverview.vue'
 import AppVideoPlayer from '@/components/playback/AppVideoPlayer.vue'
-import { startPlayback } from '@/api/playback'
+import { fetchPlaybackContent, startPlayback } from '@/api/playback'
 import { useAuthStore } from '@/stores/auth.ts'
-import type { ContentPlaybackData } from '@/types/ContentPlayback'
+import type { ContentPlaybackDetails } from '@/types/ContentPlayback'
 import { formatDuration } from '@/utils/youtube'
 import { ApiError } from '@/api/client'
 
-const MOCK_CONTENT: ContentPlaybackData = {
-  contentId: 'a9c6ef31-c157-443d-a593-f29ee69ec5fa',
-  durationSec: 6346,
-  videoUri: 'https://www.youtube.com/watch?v=k62eenypV4g',
-  videoLanguages: ['Polski'],
-}
-
+const route = useRoute()
 const auth = useAuthStore()
-const content = ref<ContentPlaybackData>(MOCK_CONTENT)
+
+const content = ref<ContentPlaybackDetails | null>(null)
 const resumeFromSeconds = ref(0)
 const isLoading = ref(true)
 const apiError = ref<string | null>(null)
 
-onMounted(async () => {
+async function loadPlayback(): Promise<void> {
+  const contentId = String(route.params.contentId ?? '')
   const token = auth.user?.accessToken
-  if (!token) {
+
+  content.value = null
+  resumeFromSeconds.value = 0
+  apiError.value = null
+  isLoading.value = true
+
+  if (!contentId) {
+    apiError.value = 'Brak identyfikatora treści.'
     isLoading.value = false
+    return
+  }
+
+  if (!token) {
     apiError.value = 'Brak sesji użytkownika.'
+    isLoading.value = false
     return
   }
 
   try {
-    const playback = await startPlayback(content.value.contentId, token)
+    const playbackContent = await fetchPlaybackContent(contentId, token)
+
+    if (!playbackContent) {
+      apiError.value = 'Nie znaleziono materiału do odtworzenia.'
+      return
+    }
+
+    content.value = playbackContent
+
+    const playback = await startPlayback(contentId, token)
     resumeFromSeconds.value = playback.resumeFromSeconds
   } catch (error) {
     if (error instanceof ApiError) {
@@ -41,7 +59,20 @@ onMounted(async () => {
   } finally {
     isLoading.value = false
   }
+}
+
+onMounted(() => {
+  void loadPlayback()
 })
+
+watch(
+  () => route.params.contentId,
+  (contentId, previousContentId) => {
+    if (contentId && contentId !== previousContentId) {
+      void loadPlayback()
+    }
+  },
+)
 </script>
 
 <template>
@@ -52,9 +83,9 @@ onMounted(async () => {
       <section class="playback-panel">
         <header class="playback-header">
           <p class="playback-label">Odtwarzanie</p>
-          <h1 class="playback-title">Materiał wideo</h1>
+          <h1 class="playback-title">{{ content?.title ?? 'Materiał wideo' }}</h1>
 
-          <div class="playback-meta">
+          <div v-if="content" class="playback-meta">
             <span class="meta-item">Czas trwania: {{ formatDuration(content.durationSec) }}</span>
             <span class="meta-item">
               Języki:
@@ -72,7 +103,7 @@ onMounted(async () => {
         </div>
 
         <AppVideoPlayer
-          v-else
+          v-else-if="content"
           :content="content"
           :resume-from-seconds="resumeFromSeconds"
         />
