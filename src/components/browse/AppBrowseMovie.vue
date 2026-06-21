@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { fetchLibraryMetadata, type Metadata } from '@/api/browse'
 import { useAuthStore } from '@/stores/auth'
 import { apiFetch } from '@/api/client.ts'
 
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 
 type UserRatingResponse = {
@@ -526,26 +527,15 @@ async function handleWatchlist() {
   }
 }
 
-function handlePlay() {
+function handlePlay(): void {
   if (!id.value) {
     return
   }
 
-  if (playbackUrl.value) {
-    window.location.assign(playbackUrl.value)
-    return
-  }
-
-  /*
-   * Alternatywnie podepnij tutaj własną trasę:
-   *
-   * router.push({
-   *   name: 'MoviePlayer',
-   *   params: { id: id.value },
-   * })
-   */
-
-  error.value = 'Brak adresu odtwarzania. Podepnij trasę playera w handlePlay().'
+  void router.push({
+    name: 'Playback',
+    params: { contentId: id.value },
+  })
 }
 
 function handleThumbnailError() {

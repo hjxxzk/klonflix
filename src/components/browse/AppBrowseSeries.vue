@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { apiFetch, ApiError } from '@/api/client'
 import {
@@ -23,6 +23,7 @@ type UserRatingResponse = {
 }
 
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 
 const id = ref<string | null>(null)
@@ -557,16 +558,18 @@ async function handleWatchlist() {
   }
 }
 
-function playEpisode(episode: EpisodeResponse) {
+function playEpisode(episode: EpisodeResponse): void {
   error.value = null
 
   if (!episode.videoUri?.trim()) {
     error.value = `Odcinek „${episode.title}” nie ma przypisanego pliku wideo.`
-
     return
   }
 
-  window.location.assign(episode.videoUri)
+  void router.push({
+    name: 'Playback',
+    params: { contentId: episode.id },
+  })
 }
 
 function playFirstEpisode() {
