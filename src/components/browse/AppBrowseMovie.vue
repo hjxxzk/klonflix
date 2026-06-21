@@ -8,6 +8,12 @@ import { apiFetch } from '@/api/client.ts'
 const route = useRoute()
 const auth = useAuthStore()
 
+type UserRatingResponse = {
+  contentId: string
+  stars: number
+  ratedAt: string
+}
+
 const id = ref<string | null>(null)
 const metadata = ref<Metadata | null>(null)
 
@@ -18,11 +24,17 @@ const thumbnailUrl = ref<string | null>(null)
 const thumbnailLoading = ref(false)
 const thumbnailError = ref<string | null>(null)
 
+const WATCHLIST_BASE_PATH = '/watchlist'
+
 const watchlistLoading = ref(false)
+const watchlistChecking = ref(false)
+const watchlistError = ref<string | null>(null)
 const isInWatchlist = ref(false)
 
 let requestId = 0
 let thumbnailController: AbortController | null = null
+let ratingController: AbortController | null = null
+let watchlistController: AbortController | null = null
 
 const MAX_STARS = 5
 const selectedRating = ref<number | null>(null)
@@ -34,6 +46,159 @@ const ratingSuccess = ref<string | null>(null)
 const displayedRating = computed(() => {
   return hoveredRating.value ?? selectedRating.value ?? 0
 })
+
+function getErrorStatus(error: unknown): number | null {
+  if (typeof error !== 'object' || error === null || !('status' in error)) {
+    return null
+  }
+
+  const status = (error as { status?: unknown }).status
+
+  return typeof status === 'number' ? status : null
+}
+
+
+async function fetchInitialWatchlistState(
+  contentId: string,
+  token: string | undefined,
+  currentRequestId: number
+) {
+  watchlistController?.abort()
+
+  const currentWatchlistController = new AbortController()
+  watchlistController = currentWatchlistController
+
+  isInWatchlist.value = false
+  watchlistError.value = null
+
+  if (!token) {
+    watchlistController = null
+    return
+  }
+
+  watchlistChecking.value = true
+
+  try {
+    const present = await apiFetch<boolean>(
+      `${WATCHLIST_BASE_PATH}/present/${encodeURIComponent(contentId)}`,
+      {
+        method: 'GET',
+        signal: currentWatchlistController.signal,
+      },
+      token
+    )
+
+    if (currentRequestId !== requestId) {
+      return
+    }
+
+    isInWatchlist.value = present === true
+  } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      return
+    }
+
+    if (currentRequestId !== requestId) {
+      return
+    }
+
+    if (getErrorStatus(e) === 404) {
+      isInWatchlist.value = false
+      return
+    }
+
+    isInWatchlist.value = false
+    watchlistError.value =
+      e instanceof Error ? e.message : 'Nie udało się sprawdzić watchlisty.'
+  } finally {
+    if (currentRequestId === requestId) {
+      watchlistChecking.value = false
+    }
+
+    if (watchlistController === currentWatchlistController) {
+      watchlistController = null
+    }
+  }
+}
+
+function resetWatchlistState() {
+  watchlistController?.abort()
+  watchlistController = null
+  watchlistLoading.value = false
+  watchlistChecking.value = false
+  watchlistError.value = null
+  isInWatchlist.value = false
+}
+
+async function fetchInitialRating(
+  contentId: string,
+  token: string | undefined,
+  currentRequestId: number
+) {
+  ratingController?.abort()
+
+  const currentRatingController = new AbortController()
+  ratingController = currentRatingController
+
+  selectedRating.value = null
+  hoveredRating.value = null
+  ratingError.value = null
+  ratingSuccess.value = null
+
+  if (!token) {
+    ratingController = null
+    return
+  }
+
+  ratingLoading.value = true
+
+  try {
+    const response = await apiFetch<UserRatingResponse | undefined>(
+      `/stars/${encodeURIComponent(contentId)}`,
+      {
+        method: 'GET',
+        signal: currentRatingController.signal,
+      },
+      token
+    )
+
+    if (currentRequestId !== requestId) {
+      return
+    }
+
+    if (!response) {
+      selectedRating.value = null
+      return
+    }
+
+    if (!Number.isInteger(response.stars) || response.stars < 1 || response.stars > MAX_STARS) {
+      throw new Error('Serwer zwrócił nieprawidłową ocenę.')
+    }
+
+    selectedRating.value = response.stars
+  } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      return
+    }
+
+    if (currentRequestId !== requestId) {
+      return
+    }
+
+    // Brak wcześniejszej oceny nie jest błędem dla użytkownika.
+    if (getErrorStatus(e) === 404) {
+      selectedRating.value = null
+      return
+    }
+
+    ratingError.value =
+      e instanceof Error ? e.message : 'Nie udało się pobrać zapisanej oceny.'
+  } finally {
+    if (currentRequestId === requestId) {
+      ratingLoading.value = false
+    }
+  }
+}
 
 async function submitRating(stars: number) {
   if (!id.value || ratingLoading.value) {
@@ -68,6 +233,9 @@ async function submitRating(stars: number) {
   }
 }
 function resetRatingState() {
+  ratingController?.abort()
+  ratingController = null
+  ratingLoading.value = false
   selectedRating.value = null
   hoveredRating.value = null
   ratingError.value = null
@@ -261,6 +429,10 @@ async function fetchMetadataFor(idValue: string) {
 
   try {
     const token = getAccessToken()
+
+    void fetchInitialRating(idValue, token, currentRequestId)
+    void fetchInitialWatchlistState(idValue, token, currentRequestId)
+
     const result = await fetchLibraryMetadata(idValue, token)
 
     if (currentRequestId !== requestId) {
@@ -286,24 +458,67 @@ async function fetchMetadataFor(idValue: string) {
 }
 
 async function handleWatchlist() {
-  if (!id.value || watchlistLoading.value) {
+  if (
+    !id.value ||
+    watchlistLoading.value ||
+    watchlistChecking.value
+  ) {
     return
   }
 
+  const token = getAccessToken()
+
+  if (!token) {
+    watchlistError.value =
+      'Musisz być zalogowana, aby zmienić watchlistę.'
+    return
+  }
+
+  watchlistController?.abort()
+
+  const currentWatchlistController = new AbortController()
+  watchlistController = currentWatchlistController
+
+  const contentId = id.value
+  const wasPresent = isInWatchlist.value
+
   watchlistLoading.value = true
+  watchlistError.value = null
 
   try {
-    /*
-     * Tutaj podepnij swoje API, przykładowo:
-     *
-     * await addMovieToWatchlist(id.value, getAccessToken())
-     */
+    await apiFetch<void>(
+      `${WATCHLIST_BASE_PATH}/${encodeURIComponent(contentId)}`,
+      {
+        method: wasPresent ? 'DELETE' : 'POST',
+        signal: currentWatchlistController.signal,
+      },
+      token
+    )
 
-    isInWatchlist.value = !isInWatchlist.value
+    if (contentId !== id.value) {
+      return
+    }
+
+    isInWatchlist.value = !wasPresent
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : 'Nie udało się zmienić watchlisty.'
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      return
+    }
+
+    watchlistError.value =
+      e instanceof Error
+        ? e.message
+        : wasPresent
+          ? 'Nie udało się usunąć filmu z watchlisty.'
+          : 'Nie udało się dodać filmu do watchlisty.'
   } finally {
-    watchlistLoading.value = false
+    if (contentId === id.value) {
+      watchlistLoading.value = false
+    }
+
+    if (watchlistController === currentWatchlistController) {
+      watchlistController = null
+    }
   }
 }
 
@@ -351,6 +566,7 @@ watch(
 
     id.value = idValue
     resetRatingState()
+    resetWatchlistState()
     void fetchMetadataFor(idValue)
   },
   {
@@ -361,6 +577,8 @@ watch(
 onBeforeUnmount(() => {
   requestId++
   thumbnailController?.abort()
+  ratingController?.abort()
+  watchlistController?.abort()
   revokeThumbnailUrl()
 })
 </script>
@@ -478,7 +696,7 @@ onBeforeUnmount(() => {
               >
                 <span aria-hidden="true">★</span>
               </button>
-              <span v-if="ratingLoading" class="rating-spinner" aria-label="Zapisywanie oceny" />
+              <span v-if="ratingLoading" class="rating-spinner" aria-label="Pobieranie lub zapisywanie oceny" />
             </div>
             <p v-if="ratingSuccess" class="rating-message success" role="status">
               {{ ratingSuccess }}
@@ -495,7 +713,14 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="btn btn-outline-primary"
-              :disabled="watchlistLoading"
+              :disabled="watchlistLoading || watchlistChecking"
+              :class="{ 'watchlist-active': isInWatchlist }"
+              :aria-pressed="isInWatchlist"
+              :title="
+                isInWatchlist
+                  ? 'Kliknij, aby usunąć z watchlisty'
+                  : 'Kliknij, aby dodać do watchlisty'
+              "
               @click="handleWatchlist"
             >
               <span class="button-icon">
@@ -503,13 +728,21 @@ onBeforeUnmount(() => {
               </span>
 
               {{
-                watchlistLoading
-                  ? 'Zapisywanie...'
-                  : isInWatchlist
-                    ? 'Na watchliście'
-                    : 'Dodaj do watchlisty'
+                watchlistChecking
+                  ? 'Sprawdzanie...'
+                  : watchlistLoading
+                    ? isInWatchlist
+                      ? 'Usuwanie...'
+                      : 'Dodawanie...'
+                    : isInWatchlist
+                      ? 'Na watchliście — usuń'
+                      : 'Dodaj do watchlisty'
               }}
             </button>
+          </div>
+
+          <div v-if="watchlistError" class="inline-error">
+            {{ watchlistError }}
           </div>
 
           <div v-if="error" class="inline-error">
@@ -800,6 +1033,19 @@ $font-family: 'Inter', sans-serif;
     color: black;
     background-color: $primary;
     border-color: $primary;
+  }
+}
+
+:deep(.btn-outline-primary.watchlist-active) {
+  color: $primary;
+  background: rgba($primary, 0.12);
+  border-color: rgba($primary, 0.72);
+  box-shadow: inset 0 0 0 1px rgba($primary, 0.08);
+
+  &:hover:not(:disabled) {
+    color: #fff;
+    background: rgba(170, 35, 35, 0.72);
+    border-color: rgba(255, 100, 100, 0.72);
   }
 }
 
