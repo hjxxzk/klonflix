@@ -56,12 +56,28 @@ const episodeSeries = ref<ContentResponse | null>(null)
 const episodeSeason = ref<SeasonResponse | null>(null)
 const editingEpisode = ref<EpisodeResponse | null>(null)
 
-const hasNextPage = computed(() => itemCount.value === pageSize.value)
+const hasNextPage = ref(false)
 const hasPreviousPage = computed(() => currentPage.value > 1)
 
-const expandedSeries = computed(() =>
-  contents.value.find((content) => content.id === expandedSeriesId.value) ?? null,
-)
+function normalizeContent(content: ContentResponse): ContentResponse {
+  return {
+    ...content,
+    languages: content.languages ?? [],
+    seasons: (content.seasons ?? []).map((season) => ({
+      ...season,
+      episodes: season.episodes ?? [],
+    })),
+  }
+}
+
+const expandedSeries = computed(() => {
+  const content = contents.value.find((item) => item.id === expandedSeriesId.value)
+  if (!content || content.type !== 'SERIES') {
+    return null
+  }
+
+  return content
+})
 
 function clearMessages(): void {
   apiError.value = null
@@ -92,9 +108,20 @@ async function loadLibrary(): Promise<void> {
   clearMessages()
 
   try {
-    const response = await browseLibrary(token, currentPage.value, pageSize.value)
-    contents.value = response.contents
-    itemCount.value = response.pagination.itemCount
+    const [currentPageItems, nextPageItems] = await Promise.all([
+      browseLibrary(token, currentPage.value, pageSize.value),
+      browseLibrary(token, currentPage.value + 1, pageSize.value),
+    ])
+
+    contents.value = currentPageItems.map(normalizeContent)
+    itemCount.value = currentPageItems.length
+    hasNextPage.value = nextPageItems.length > 0
+
+    if (currentPageItems.length === 0 && currentPage.value > 1) {
+      currentPage.value--
+      await loadLibrary()
+      return
+    }
 
     if (
       expandedSeriesId.value &&
@@ -355,7 +382,11 @@ onMounted(() => {
             >
               Poprzednia
             </b-button>
-            <b-button variant="outline-primary" :disabled="!hasNextPage" @click="goToPage(currentPage + 1)">
+            <b-button
+              variant="outline-primary"
+              :disabled="!hasNextPage"
+              @click="goToPage(currentPage + 1)"
+            >
               Następna
             </b-button>
           </div>

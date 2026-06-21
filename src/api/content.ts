@@ -1,8 +1,8 @@
 import { apiFetch } from '@/api/client'
 import type {
   ContentRequest,
+  ContentResponse,
   EpisodeRequest,
-  LibraryPageResponse,
   SeasonRequest,
 } from '@/types/Content'
 
@@ -10,8 +10,13 @@ export function browseLibrary(
   accessToken: string,
   page = 1,
   size = 20,
-): Promise<LibraryPageResponse> {
-  return apiFetch<LibraryPageResponse>(`/library?page=${page}&size=${size}`, {}, accessToken)
+  signal?: AbortSignal,
+): Promise<ContentResponse[]> {
+  return apiFetch<ContentResponse[]>(
+    `/library?page=${page}&size=${size}`,
+    { signal },
+    accessToken,
+  )
 }
 
 export function createContent(accessToken: string, body: ContentRequest): Promise<string> {
