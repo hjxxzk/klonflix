@@ -1,111 +1,106 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import TopItem from '@/components/overview/TopItem.vue'
 import { useAuthStore } from '@/stores/auth'
 import { getRecommendedLibrary } from '@/api/library'
+import type { ContentType } from '@/types/LibraryContent.ts'
 
 type Item = {
   id: string
   thumbnail?: string
   title?: string
+  contentType?: ContentType
 }
 
+const auth = useAuthStore()
 const items = ref<Item[]>([])
 const isLoading = ref(false)
 const loadError = ref<string | null>(null)
-
 const track = ref<HTMLElement | null>(null)
 const canScrollLeft = ref(false)
-const canScrollRight = ref(true)
+const canScrollRight = ref(false)
 
 let controller: AbortController | null = null
 
 function updateScrollButtons() {
-  if (!track.value) return
-  const el = track.value
-  canScrollLeft.value = el.scrollLeft > 10
-  canScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 10
+  const element = track.value
+  if (!element) {
+    return
+  }
+  canScrollLeft.value = element.scrollLeft > 10
+  canScrollRight.value = element.scrollLeft + element.clientWidth < element.scrollWidth - 10
 }
 
-function scrollByDirection(dir: number) {
-  if (!track.value) return
-  const amount = Math.max(240, track.value.clientWidth * 0.6)
-  track.value.scrollBy({ left: dir * amount, behavior: 'smooth' })
+function scrollByDirection(direction: number) {
+  const element = track.value
+  if (!element) {
+    return
+  }
+  const amount = Math.max(260, element.clientWidth * 0.72)
+  element.scrollBy({
+    left: direction * amount,
+    behavior: 'smooth',
+  })
 }
 
-function onTrackKeydown(e: KeyboardEvent) {
-  if (e.key === 'ArrowRight') {
-    e.preventDefault()
+function onTrackKeydown(event: KeyboardEvent) {
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
     scrollByDirection(1)
-  } else if (e.key === 'ArrowLeft') {
-    e.preventDefault()
+  }
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
     scrollByDirection(-1)
   }
 }
 
 async function fetchRecommendations() {
-  const auth = useAuthStore()
-  const token = auth.user?.accessToken ?? ''
-
-  if (controller) {
-    controller.abort()
-  }
+  const token = auth.user?.accessToken
+  controller?.abort()
   controller = new AbortController()
   isLoading.value = true
   loadError.value = null
 
   try {
-    const data = await getRecommendedLibrary(token, controller.signal)
-    items.value = data.map((c) => ({
-      id: c.id,
-      thumbnail: c.thumbnailUrl,
-      title: c.title || undefined,
-    }))
-
-    await nextTick()
-    updateScrollButtons()
-  } catch (err: unknown) {
-    if (
-      typeof err === 'object' &&
-      err !== null &&
-      'name' in err &&
-      (err as { name?: unknown }).name === 'AbortError'
-    ) {
+    if (!token) {
+      items.value = []
       return
     }
 
-    if (err instanceof Error) {
-      loadError.value = err.message
-    } else {
-      loadError.value = String(err)
-    }
-
-    items.value = Array.from({ length: 6 }).map((_, i) => ({
-      id: `fallback-${i + 1}`,
-      thumbnail: '',
-      title: `Top item ${i + 1}`,
+    const data = await getRecommendedLibrary(token, controller.signal)
+    items.value = data.slice(0, 10).map((content) => ({
+      id: content.id,
+      thumbnail: content.thumbnailUrl,
+      title: content.title || undefined,
+      contentType: content.contentType || undefined,
     }))
+
+    await nextTick()
+    requestAnimationFrame(() => {
+      updateScrollButtons()
+    })
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return
+    }
+    loadError.value = err instanceof Error ? err.message : String(err)
+    items.value = []
   } finally {
     isLoading.value = false
   }
 }
 
 onMounted(() => {
-  updateScrollButtons()
-  const el = track.value
-  if (el) {
-    el.addEventListener('scroll', updateScrollButtons, { passive: true })
-  }
+  const element = track.value
+  element?.addEventListener('scroll', updateScrollButtons, { passive: true })
   window.addEventListener('resize', updateScrollButtons)
-
-  fetchRecommendations()
+  void fetchRecommendations()
 })
 
 onBeforeUnmount(() => {
-  const el = track.value
-  if (el) el.removeEventListener('scroll', updateScrollButtons)
+  track.value?.removeEventListener('scroll', updateScrollButtons)
   window.removeEventListener('resize', updateScrollButtons)
-  if (controller) controller.abort()
+  controller?.abort()
 })
 </script>
 
@@ -113,40 +108,59 @@ onBeforeUnmount(() => {
   <div class="top10-list">
     <button
       class="nav left"
-      @click="scrollByDirection(-1)"
+      type="button"
       :disabled="!canScrollLeft"
-      :aria-disabled="!canScrollLeft"
-      aria-label="Scroll left"
+      aria-label="Przewiń w lewo"
+      @click="scrollByDirection(-1)"
     >
       ‹
     </button>
 
-    <div class="track" ref="track" role="list" tabindex="0" @keydown="onTrackKeydown">
-      <div class="track-item" v-for="(item, i) in items" :key="item.id" role="listitem">
-        <TopItem :rank="i + 1" :thumbnail="item.thumbnail" :id="item.id" :name="item.title" />
-      </div>
+    <div
+      ref="track"
+      class="track"
+      role="list"
+      tabindex="0"
+      aria-label="Najlepsze propozycje"
+      @keydown="onTrackKeydown"
+    >
+      <template v-if="isLoading">
+        <div v-for="index in 4" :key="index" class="track-item" aria-hidden="true">
+          <div class="top-skeleton">
+            <div class="skeleton-rank" />
+            <div class="skeleton-poster" />
+          </div>
+        </div>
+      </template>
 
-      <div v-if="isLoading" class="track-item" aria-hidden="true">
-        <div
-          style="
-            width: 260px;
-            height: 88px;
-            background: rgba(255, 255, 255, 0.04);
-            border-radius: 6px;
-          "
-        ></div>
+      <div v-for="(item, index) in items" v-else :key="item.id" class="track-item" role="listitem">
+        <TopItem
+          :rank="index + 1"
+          :thumbnail="item.thumbnail"
+          :id="item.id"
+          :name="item.title"
+          :content-type="item.contentType"
+        />
       </div>
     </div>
 
     <button
       class="nav right"
-      @click="scrollByDirection(1)"
+      type="button"
       :disabled="!canScrollRight"
-      :aria-disabled="!canScrollRight"
-      aria-label="Scroll right"
+      aria-label="Przewiń w prawo"
+      @click="scrollByDirection(1)"
     >
       ›
     </button>
+  </div>
+
+  <div v-if="loadError" class="recommendation-error" role="alert">
+    Nie udało się pobrać rekomendacji: {{ loadError }}
+  </div>
+
+  <div v-else-if="!isLoading && !items.length" class="recommendation-empty">
+    Brak rekomendacji do wyświetlenia.
   </div>
 </template>
 
@@ -154,77 +168,147 @@ onBeforeUnmount(() => {
 @use '@/styles/variables.scss' as *;
 
 .top10-list {
-  width: 100%;
+  position: relative;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  width: 100%;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
   align-items: center;
-  gap: 12px;
+  gap: 0.5rem;
 }
 
 .track {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
   display: flex;
-  gap: 12px;
-  padding: 8px 0;
   width: 100%;
-
+  gap: 1rem;
+  padding: 0.75rem 0.25rem 1.25rem;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
   scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.track::-webkit-scrollbar {
-  display: none;
-  height: 0;
+  -webkit-overflow-scrolling: touch;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba($primary, 0.25);
+    outline-offset: 5px;
+    border-radius: 12px;
+  }
 }
 
 .track-item {
+  width: clamp(250px, 24vw, 340px);
   flex: 0 0 auto;
   scroll-snap-align: start;
-  width: 260px;
 }
 
 .nav {
-  background: transparent;
-  color: $white;
-  border: none;
-  width: 48px;
-  height: 80px;
-  font-size: 1.5rem;
+  position: relative;
+  z-index: 5;
   display: flex;
+  width: 44px;
+  height: 72px;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  color: $primary;
+  font-size: 2rem;
   cursor: pointer;
+  background: linear-gradient(145deg, rgba($accent, 0.85), rgba($black, 0.95));
+  border: 1px solid rgba($primary, 0.18);
+  border-radius: 12px;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+
+  &:hover:not(:disabled) {
+    color: $black;
+    background: $primary;
+    border-color: $primary;
+    transform: scale(1.05);
+  }
+
+  &:focus-visible {
+    outline: 3px solid rgba($primary, 0.3);
+    outline-offset: 3px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.22;
+  }
 }
 
-.nav.left {
-  justify-self: start;
+.top-skeleton {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: end;
+  min-height: 150px;
 }
 
-.nav.right {
-  justify-self: end;
+.skeleton-rank,
+.skeleton-poster {
+  background: linear-gradient(
+    110deg,
+    rgba($white, 0.04) 8%,
+    rgba($white, 0.1) 18%,
+    rgba($white, 0.04) 33%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.35s linear infinite;
 }
 
-.nav:focus {
-  outline: 2px solid rgba(255, 255, 255, 0.12);
+.skeleton-rank {
+  width: 56px;
+  height: 90px;
+  border-radius: 10px;
 }
 
-.nav[disabled] {
-  opacity: 0.45;
-  cursor: default;
-  pointer-events: none;
+.skeleton-poster {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+}
+
+.recommendation-error,
+.recommendation-empty {
+  margin-top: 0.5rem;
+  padding: 1rem;
+  color: rgba($white, 0.7);
+  font-size: 0.82rem;
+  text-align: center;
+  background: rgba($accent, 0.5);
+  border: 1px solid rgba($white, 0.06);
+  border-radius: 10px;
+}
+
+.recommendation-error {
+  color: #ffabab;
+  border-color: rgba(255, 80, 80, 0.16);
+}
+
+@keyframes shimmer {
+  to {
+    background-position-x: -200%;
+  }
 }
 
 @media (max-width: 720px) {
+  .top10-list {
+    grid-template-columns: 34px minmax(0, 1fr) 34px;
+  }
+
   .track-item {
-    width: 200px;
+    width: 250px;
   }
 
   .nav {
-    width: 40px;
-    height: 64px;
-    font-size: 1.25rem;
+    width: 34px;
+    height: 62px;
+    font-size: 1.5rem;
   }
 }
 </style>
