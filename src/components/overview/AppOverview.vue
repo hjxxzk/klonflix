@@ -28,7 +28,7 @@ import AppBrandLogo from '@/components/home/AppBrandLogo.vue'
           <header class="section-header">
             <div>
               <span class="section-eyebrow"> Wybrane dla Ciebie </span>
-              <h2 class="section-title">Twoje TOP 10</h2>
+              <h2 class="section-title">Twoja topka</h2>
             </div>
             <span class="section-decoration" />
           </header>
