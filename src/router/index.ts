@@ -47,6 +47,24 @@ const router = createRouter({
       props: true,
       meta: { requiresAuth: true },
     },
+    {
+      path: '/search',
+      name: 'Search',
+      component: AppBrowseSeries,
+      props: (route) => ({
+        phrase: route.query.phrase,
+      }),
+      meta: {
+        requiresAuth: true,
+      },
+    },
+    {
+      path: '/watchlist',
+      name: 'Watchlist',
+      component: AppBrowseSeries,
+      props: true,
+      meta: { requiresAuth: true },
+    },
   ],
 })
 
