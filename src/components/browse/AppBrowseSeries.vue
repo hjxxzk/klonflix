@@ -32,6 +32,67 @@ const error = ref<string | null>(null)
 const watchlistLoading = ref(false)
 const isInWatchlist = ref(false)
 
+const MAX_STARS = 5
+
+const selectedRating = ref<number | null>(null)
+const hoveredRating = ref<number | null>(null)
+const ratingLoading = ref(false)
+const ratingError = ref<string | null>(null)
+const ratingSuccess = ref<string | null>(null)
+
+const displayedRating = computed(() => {
+  return hoveredRating.value ?? selectedRating.value ?? 0
+})
+
+async function submitRating(stars: number) {
+  if (!id.value || ratingLoading.value) {
+    return
+  }
+
+  if (!Number.isInteger(stars) || stars < 1 || stars > MAX_STARS) {
+    ratingError.value = `Ocena musi mieścić się w zakresie od 1 do ${MAX_STARS}.`
+    return
+  }
+
+  const token = getAccessToken()
+
+  if (!token) {
+    ratingError.value = 'Musisz być zalogowana, aby ocenić serial.'
+    return
+  }
+
+  ratingLoading.value = true
+  ratingError.value = null
+  ratingSuccess.value = null
+
+  try {
+    await apiFetch<void>(
+      `/rate/${encodeURIComponent(id.value)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          stars,
+        }),
+      },
+      token
+    )
+
+    selectedRating.value = stars
+    ratingSuccess.value = `Twoja ocena: ${stars}/${MAX_STARS}`
+  } catch (e: unknown) {
+    ratingError.value = e instanceof Error ? e.message : 'Nie udało się zapisać oceny serialu.'
+  } finally {
+    ratingLoading.value = false
+  }
+}
+
+function resetRatingState() {
+  selectedRating.value = null
+  hoveredRating.value = null
+  ratingError.value = null
+  ratingSuccess.value = null
+}
+
 let activeRequest = 0
 
 function getAccessToken(): string | undefined {
@@ -219,6 +280,8 @@ async function fetchSeriesFor(seriesId: string) {
 
   loading.value = true
   error.value = null
+
+  resetRatingState()
 
   metadata.value = null
   content.value = null
@@ -458,6 +521,62 @@ onBeforeUnmount(() => {
                 {{ keyword }}
               </span>
             </div>
+          </div>
+
+          <div class="rating-section">
+            <div class="rating-heading">
+              <div>
+                <span class="section-label"> Twoja ocena </span>
+
+                <p class="rating-description">Jak oceniasz ten serial?</p>
+              </div>
+
+              <span v-if="selectedRating" class="rating-value">
+                {{ selectedRating }}/{{ MAX_STARS }}
+              </span>
+            </div>
+
+            <div
+              class="stars"
+              role="group"
+              :aria-label="`Oceń serial w skali od 1 do ${MAX_STARS}`"
+              @mouseleave="hoveredRating = null"
+            >
+              <button
+                v-for="star in MAX_STARS"
+                :key="star"
+                type="button"
+                class="star-button"
+                :class="{
+                  active: star <= displayedRating,
+                  selected: star <= (selectedRating ?? 0),
+                }"
+                :disabled="ratingLoading"
+                :aria-label="`Oceń serial na ${star} z ${MAX_STARS}`"
+                :aria-pressed="selectedRating === star"
+                @mouseenter="hoveredRating = star"
+                @focus="hoveredRating = star"
+                @blur="hoveredRating = null"
+                @click="submitRating(star)"
+              >
+                <span aria-hidden="true">★</span>
+              </button>
+
+              <span
+                v-if="ratingLoading"
+                class="rating-spinner"
+                role="status"
+                aria-label="Zapisywanie oceny"
+              />
+            </div>
+
+            <p v-if="ratingSuccess" class="rating-message success" role="status">
+              {{ ratingSuccess }}
+            </p>
+
+            <p v-if="ratingError" class="rating-message error" role="alert">
+              {{ ratingError }}
+            </p>
           </div>
 
           <div class="actions">
@@ -1400,6 +1519,125 @@ $font-family: 'Inter', sans-serif;
       width: 100%;
       margin-left: 0;
     }
+  }
+}
+
+.rating-section {
+  margin-top: 1.75rem;
+  padding: 1.1rem 1.2rem;
+  background: linear-gradient(135deg, rgba($primary, 0.065), rgba($black, 0.28));
+  border: 1px solid rgba($primary, 0.16);
+  border-radius: 14px;
+}
+
+.rating-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.rating-description {
+  margin: 0.35rem 0 0;
+  color: rgba($white, 0.68);
+  font-size: 0.82rem;
+}
+
+.rating-value {
+  padding: 0.35rem 0.65rem;
+  color: $primary;
+  font-size: 0.78rem;
+  font-weight: 800;
+  background: rgba($primary, 0.08);
+  border: 1px solid rgba($primary, 0.2);
+  border-radius: 999px;
+}
+
+.stars {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-top: 0.85rem;
+}
+
+.star-button {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: rgba($white, 0.2);
+  font-size: 1.8rem;
+  line-height: 1;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  text-shadow: none;
+  transition:
+    color 140ms ease,
+    text-shadow 140ms ease,
+    transform 140ms ease,
+    background-color 140ms ease;
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    background: rgba($primary, 0.06);
+    transform: translateY(-2px) scale(1.08);
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba($primary, 0.4);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.55;
+  }
+
+  &.active,
+  &.selected {
+    color: $primary;
+    text-shadow: 0 0 14px rgba($primary, 0.4);
+  }
+}
+
+.rating-spinner {
+  width: 22px;
+  height: 22px;
+  margin-left: 0.7rem;
+  border: 2px solid rgba($primary, 0.2);
+  border-top-color: $primary;
+  border-radius: 50%;
+  animation: rating-spin 0.7s linear infinite;
+}
+
+.rating-message {
+  margin: 0.75rem 0 0;
+  font-size: 0.78rem;
+
+  &.success {
+    color: $primary;
+  }
+
+  &.error {
+    color: #ff9f9f;
+  }
+}
+
+@keyframes rating-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 640px) {
+  .star-button {
+    width: 38px;
+    height: 38px;
+    font-size: 1.55rem;
   }
 }
 </style>

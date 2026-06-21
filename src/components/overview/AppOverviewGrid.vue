@@ -1,305 +1,566 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getLibraryPage, type LibraryItem } from '@/api/library'
 import { ContentType } from '@/types/LibraryContent.ts'
-
-type Item = LibraryItem
+import placeholder from '@/resources/logo.png'
 
 const auth = useAuthStore()
-
-const items = ref<Item[]>([])
-const total = ref(0)
-const hasNextPage = ref(false)
-
 const router = useRouter()
-
-const pageSize = ref(8)
+const items = ref<LibraryItem[]>([])
+const hasNextPage = ref(false)
+const pageSize = ref(6)
 const currentPage = ref(1)
 const isLoading = ref(false)
 const error = ref<string | null>(null)
-
 let controller: AbortController | null = null
+const hasItems = computed(() => items.value.length > 0)
+const showEmptyState = computed(() => {
+  return !isLoading.value && !error.value && !hasItems.value
+})
 
 function goToBrowse(id?: string | number, contentType?: ContentType) {
-  if (id === undefined || id === null) return
+  if (id === undefined || id === null) {
+    return
+  }
   switch (contentType) {
     case ContentType.MOVIE:
-      router.push(`/browse/movie/${id}`)
-      return
+      void router.push(`/browse/movie/${id}`)
+      break
     case ContentType.SERIES:
-      router.push(`/browse/series/${id}`)
-      return
+      void router.push(`/browse/series/${id}`)
+      break
   }
 }
 
-function setPage(n: number) {
-  if (n < 1) n = 1
-  currentPage.value = n
-  const el = document.querySelector('.overview-grid')
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+function contentTypeLabel(contentType?: ContentType): string {
+  switch (contentType) {
+    case ContentType.MOVIE:
+      return 'Film'
+    case ContentType.SERIES:
+      return 'Serial'
+    default:
+      return 'Materiał'
+  }
+}
+
+function handleImageError(event: Event) {
+  const image = event.currentTarget as HTMLImageElement
+  if (image.src !== placeholder) {
+    image.src = placeholder
+  }
+}
+
+function scrollToGrid() {
+  document.querySelector('.overview-grid')?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start',
+  })
+}
+
+function setPage(page: number) {
+  currentPage.value = Math.max(1, page)
+  scrollToGrid()
 }
 
 function prevPage() {
-  if (currentPage.value > 1) setPage(currentPage.value - 1)
+  if (currentPage.value > 1) {
+    setPage(currentPage.value - 1)
+  }
 }
 
 function nextPage() {
-  setPage(currentPage.value + 1)
+  if (hasNextPage.value) {
+    setPage(currentPage.value + 1)
+  }
 }
 
 async function loadPage() {
-  if (!auth.user?.accessToken) {
+  const token = auth.user?.accessToken
+  if (!token) {
     items.value = []
-    total.value = 0
     hasNextPage.value = false
+    error.value = null
     return
   }
 
   controller?.abort()
   controller = new AbortController()
   const signal = controller.signal
-
   isLoading.value = true
   error.value = null
 
   try {
-    const [currentResp, nextResp] = await Promise.all([
-      getLibraryPage(auth.user.accessToken, currentPage.value, pageSize.value, signal),
-      getLibraryPage(auth.user.accessToken, currentPage.value + 1, pageSize.value, signal),
+    const [currentResponse, nextResponse] = await Promise.all([
+      getLibraryPage(token, currentPage.value, pageSize.value, signal),
+      getLibraryPage(token, currentPage.value + 1, pageSize.value, signal),
     ])
-
-    items.value = currentResp
-    total.value = currentResp.length
-    hasNextPage.value = nextResp.length > 0
+    items.value = currentResponse
+    hasNextPage.value = nextResponse.length > 0
+    if (currentResponse.length === 0 && currentPage.value > 1) {
+      currentPage.value--
+    }
   } catch (err: unknown) {
-    if (err instanceof DOMException && err.name === 'AbortError') return
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return
+    }
     error.value = err instanceof Error ? err.message : String(err)
   } finally {
-    isLoading.value = false
+    if (!signal.aborted) {
+      isLoading.value = false
+    }
   }
 }
 
 onMounted(() => {
-  loadPage()
+  void loadPage()
 })
 
 watch([currentPage, () => auth.user?.accessToken], () => {
-  loadPage()
+  void loadPage()
 })
 
 onBeforeUnmount(() => {
   controller?.abort()
 })
 </script>
-
 <template>
   <div class="overview-grid">
-    <div class="grid">
-      <div v-if="isLoading" class="grid-loader">Ładowanie...</div>
-      <div v-if="error" class="grid-error">{{ error }}</div>
+    <div v-if="error" class="state-card error-state" role="alert">
+      <span class="state-icon">!</span>
+      <div>
+        <strong>Nie udało się pobrać biblioteki</strong>
+        <p>{{ error }}</p>
+      </div>
+      <button type="button" class="retry-button" @click="loadPage">Spróbuj ponownie</button>
+    </div>
+    <div v-else-if="showEmptyState" class="state-card">
+      <span class="state-icon">▤</span>
+      <div>
+        <strong>Biblioteka jest pusta</strong>
+        <p>Nie znaleziono pozycji do wyświetlenia.</p>
+      </div>
+    </div>
+    <div v-else class="grid">
+      <template v-if="isLoading">
+        <div v-for="index in pageSize" :key="index" class="card-skeleton" aria-hidden="true">
+          <div class="skeleton skeleton-image" />
+          <div class="skeleton-content">
+            <div class="skeleton skeleton-title" />
+            <div class="skeleton skeleton-meta" />
+          </div>
+        </div>
+      </template>
       <button
         v-for="item in items"
+        v-else
         :key="item.id"
         class="card"
         type="button"
+        :aria-label="`Otwórz ${item.title || 'wybraną pozycję'}`"
         @click="goToBrowse(item.id, item.contentType)"
-        @keydown.enter.prevent="goToBrowse(item.id)"
-        @keydown.space.prevent="goToBrowse(item.id)"
-        :aria-label="`Open ${item.title || 'item'}`"
       >
         <span class="thumb-wrap">
           <img
-            :src="item.thumbnailUrl || ''"
-            :alt="item.title || 'thumbnail'"
+            :src="item.thumbnailUrl || placeholder"
+            :alt="item.title || 'Miniatura'"
             loading="lazy"
             draggable="false"
+            @error="handleImageError"
           />
-          <span class="overlay">
-            <span class="title">{{ item.title }}</span>
+          <span class="image-shade" />
+          <span v-if="item.contentType" class="content-badge">
+            {{ contentTypeLabel(item.contentType) }}
+          </span>
+          <span v-if="item.available === false" class="unavailable-badge"> Niedostępny </span>
+          <span class="play-indicator" aria-hidden="true"> ▶ </span>
+        </span>
+        <span class="card-content">
+          <strong class="title"> {{ item.title || 'Bez tytułu' }} </strong>
+          <span class="card-meta">
+            <span v-if="item.genre"> {{ item.genre }} </span>
+            <span v-if="item.genre && item.releaseYear" class="meta-dot" />
+            <span v-if="item.releaseYear"> {{ item.releaseYear }} </span>
           </span>
         </span>
       </button>
     </div>
-
-    <div class="pagination" v-if="currentPage > 1 || hasNextPage">
+    <nav
+      v-if="!isLoading && !error && (currentPage > 1 || hasNextPage)"
+      class="pagination"
+      aria-label="Stronicowanie biblioteki"
+    >
       <button
+        type="button"
         class="page-btn"
-        @click="prevPage"
         :disabled="currentPage === 1"
         aria-label="Poprzednia strona"
+        @click="prevPage"
       >
-        ‹
+        <span aria-hidden="true">‹</span>
       </button>
-
-      <span class="page-info">{{ currentPage }}</span>
-
+      <span class="page-info">
+        Strona <strong>{{ currentPage }}</strong>
+      </span>
       <button
+        type="button"
         class="page-btn"
-        @click="nextPage"
         :disabled="!hasNextPage"
         aria-label="Następna strona"
+        @click="nextPage"
       >
-        ›
+        <span aria-hidden="true">›</span>
       </button>
-    </div>
-
-    <div class="no-items" v-if="error">Brak pozycji do wyświetlenia.</div>
+    </nav>
   </div>
 </template>
-
 <style scoped lang="scss">
 @use '@/styles/variables.scss' as *;
-
 .overview-grid {
   width: 100%;
-  max-width: 1450px;
-  margin: 0 auto;
+  scroll-margin-top: 6rem;
 }
-
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 12px;
-  width: 100%;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1.25rem;
 }
-
-.grid-loader,
-.grid-error {
-  grid-column: 1 / -1;
-  text-align: center;
-  color: $white;
-  padding: 12px 0;
-}
-
-.grid-error {
-  color: #ffb3b3;
-}
-
 .card {
-  background: transparent;
-  cursor: pointer;
-  user-select: none;
-  border-radius: 8px;
+  position: relative;
+  min-width: 0;
+  padding: 0;
   overflow: hidden;
+  color: $white;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: linear-gradient(145deg, rgba($accent, 0.9), rgba($black, 0.95));
+  border: 1px solid rgba($white, 0.07);
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
   transition:
-    transform 160ms ease,
-    box-shadow 160ms ease;
-  outline: none;
-  border: 0;
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+  &:hover {
+    border-color: rgba($primary, 0.42);
+    box-shadow:
+      0 20px 38px rgba(0, 0, 0, 0.34),
+      0 0 0 1px rgba($primary, 0.06);
+    transform: translateY(-6px);
+  }
+  &:focus-visible {
+    outline: 3px solid rgba($primary, 0.35);
+    outline-offset: 3px;
+  }
 }
-
-.card:focus {
-  transform: translateY(-4px);
-  outline: 2px solid rgba(255, 255, 255, 0.12);
-}
-
-.card:hover {
-  transform: translateY(-4px);
-}
-
 .thumb-wrap {
   position: relative;
   display: block;
   width: 100%;
-  aspect-ratio: 16/9;
-  background: rgba(0, 0, 0, 0.06);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: $accent;
+  img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition:
+      transform 350ms ease,
+      filter 350ms ease;
+  }
 }
-
-.thumb-wrap img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+.card:hover .thumb-wrap img {
+  filter: brightness(0.72);
+  transform: scale(1.06);
 }
-
-.overlay {
+.image-shade {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  top: 0;
+  inset: 0;
+  background: linear-gradient(180deg, rgba($black, 0.04), rgba($black, 0.7));
+  opacity: 0.45;
+  transition: opacity 180ms ease;
+}
+.card:hover .image-shade {
+  opacity: 0.85;
+}
+.content-badge,
+.unavailable-badge {
+  position: absolute;
+  top: 0.7rem;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  border-radius: 999px;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+}
+.content-badge {
+  left: 0.7rem;
+  color: $primary;
+  background: rgba($black, 0.72);
+  border: 1px solid rgba($primary, 0.3);
+}
+.unavailable-badge {
+  right: 0.7rem;
+  color: #ffb0b0;
+  background: rgba(90, 0, 0, 0.7);
+  border: 1px solid rgba(255, 90, 90, 0.3);
+}
+.play-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   display: flex;
-  align-items: flex-end;
+  width: 50px;
+  height: 50px;
+  align-items: center;
   justify-content: center;
-  padding: 10px;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0.6) 100%);
+  padding-left: 3px;
+  color: $black;
+  font-size: 0.9rem;
+  background: $primary;
+  border-radius: 50%;
+  box-shadow: 0 10px 30px rgba($primary, 0.25);
   opacity: 0;
+  transform: translate(-50%, -40%) scale(0.8);
   transition:
     opacity 180ms ease,
     transform 180ms ease;
-  pointer-events: none;
 }
-
-.card:hover .overlay,
-.card:focus .overlay,
-.card:focus-within .overlay {
+.card:hover .play-indicator,
+.card:focus-visible .play-indicator {
   opacity: 1;
-  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
 }
-
+.card-content {
+  display: block;
+  padding: 0.9rem 1rem 1rem;
+}
 .title {
-  color: $white;
-  font-weight: 700;
-  text-align: center;
-  width: 100%;
-  padding: 6px 8px;
-  font-size: 14px;
-  white-space: nowrap;
+  display: block;
   overflow: hidden;
+  color: #f5f7f6;
+  font-size: 0.94rem;
+  font-weight: 700;
+  line-height: 1.35;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
+.card-meta {
+  display: flex;
+  min-height: 1rem;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+  overflow: hidden;
+  color: rgba($white, 0.56);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta-dot {
+  width: 3px;
+  height: 3px;
+  flex: 0 0 auto;
+  background: $primary;
+  border-radius: 50%;
+}
 .pagination {
   display: flex;
-  gap: 8px;
   align-items: center;
   justify-content: center;
-  margin-top: 16px;
-  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 2rem;
 }
-
-.page-btn,
-.page-number {
-  background: transparent;
-  color: $white;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 6px 10px;
-  border-radius: 6px;
+.page-btn {
+  display: flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  color: $primary;
+  font-size: 1.4rem;
   cursor: pointer;
+  background: rgba($primary, 0.05);
+  border: 1px solid rgba($primary, 0.22);
+  border-radius: 50%;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+  &:hover:not(:disabled) {
+    color: $black;
+    background: $primary;
+    transform: scale(1.06);
+  }
+  &:focus-visible {
+    outline: 3px solid rgba($primary, 0.3);
+    outline-offset: 3px;
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.3;
+  }
 }
-
-.page-number.active {
-  background: rgba(255, 255, 255, 0.06);
-  font-weight: 700;
-}
-
-.page-btn[disabled] {
-  opacity: 0.35;
-  cursor: default;
-  pointer-events: none;
-}
-
 .page-info {
-  color: $white;
-  padding: 0 8px;
-  font-size: 14px;
-}
-
-.no-items {
+  min-width: 100px;
+  color: rgba($white, 0.62);
+  font-size: 0.78rem;
   text-align: center;
-  color: $white;
-  padding: 18px 0;
+  strong {
+    color: #fff;
+  }
 }
-
+.state-card {
+  display: flex;
+  min-height: 160px;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: rgba($accent, 0.68);
+  border: 1px solid rgba($primary, 0.14);
+  border-radius: 14px;
+  strong {
+    color: #fff;
+  }
+  p {
+    margin: 0.35rem 0 0;
+    color: rgba($white, 0.65);
+    font-size: 0.85rem;
+  }
+}
+.state-icon {
+  display: flex;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: $primary;
+  font-size: 1.25rem;
+  font-weight: 800;
+  background: rgba($primary, 0.08);
+  border: 1px solid rgba($primary, 0.2);
+  border-radius: 50%;
+}
+.error-state {
+  border-color: rgba(255, 80, 80, 0.2);
+  .state-icon {
+    color: #ff8a8a;
+    background: rgba(255, 70, 70, 0.08);
+    border-color: rgba(255, 70, 70, 0.22);
+  }
+}
+.retry-button {
+  min-height: 40px;
+  margin-left: auto;
+  padding: 0.6rem 0.9rem;
+  color: $black;
+  font-family: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  background: $primary;
+  border: 0;
+  border-radius: 8px;
+  &:hover {
+    background: $secondary;
+  }
+}
+.card-skeleton {
+  overflow: hidden;
+  background: rgba($accent, 0.6);
+  border: 1px solid rgba($white, 0.05);
+  border-radius: 14px;
+}
+.skeleton {
+  background: linear-gradient(
+    110deg,
+    rgba($white, 0.04) 8%,
+    rgba($white, 0.1) 18%,
+    rgba($white, 0.04) 33%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.35s linear infinite;
+}
+.skeleton-image {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+.skeleton-content {
+  padding: 1rem;
+}
+.skeleton-title {
+  width: 76%;
+  height: 14px;
+  border-radius: 5px;
+}
+.skeleton-meta {
+  width: 46%;
+  height: 10px;
+  margin-top: 0.65rem;
+  border-radius: 5px;
+}
+@keyframes shimmer {
+  to {
+    background-position-x: -200%;
+  }
+}
 @media (max-width: 720px) {
   .grid {
-    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
   }
-
+  .card-content {
+    padding: 0.75rem;
+  }
   .title {
-    font-size: 13px;
+    font-size: 0.82rem;
+  }
+  .card-meta {
+    font-size: 0.66rem;
+  }
+  .content-badge,
+  .unavailable-badge {
+    top: 0.5rem;
+    padding: 0.23rem 0.4rem;
+    font-size: 0.54rem;
+  }
+  .content-badge {
+    left: 0.5rem;
+  }
+  .unavailable-badge {
+    right: 0.5rem;
+  }
+  .play-indicator {
+    width: 42px;
+    height: 42px;
+  }
+  .state-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .retry-button {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+@media (max-width: 420px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .thumb-wrap img,
+  .play-indicator,
+  .page-btn,
+  .skeleton {
+    transition: none;
+    animation: none;
   }
 }
 </style>
