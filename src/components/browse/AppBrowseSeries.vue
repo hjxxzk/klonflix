@@ -16,6 +16,12 @@ type SeriesDetails = {
   content: ContentResponse
 }
 
+type UserRatingResponse = {
+  contentId: string
+  stars: number
+  ratedAt: string
+}
+
 const route = useRoute()
 const auth = useAuthStore()
 
@@ -29,8 +35,14 @@ const selectedSeasonId = ref<string | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
+const WATCHLIST_BASE_PATH = '/watchlist'
+
 const watchlistLoading = ref(false)
+const watchlistChecking = ref(false)
+const watchlistError = ref<string | null>(null)
 const isInWatchlist = ref(false)
+
+let watchlistController: AbortController | null = null
 
 const MAX_STARS = 5
 
@@ -40,9 +52,156 @@ const ratingLoading = ref(false)
 const ratingError = ref<string | null>(null)
 const ratingSuccess = ref<string | null>(null)
 
+let ratingController: AbortController | null = null
+
 const displayedRating = computed(() => {
   return hoveredRating.value ?? selectedRating.value ?? 0
 })
+
+
+async function fetchInitialWatchlistState(
+  contentId: string,
+  token: string | undefined,
+  requestNumber: number
+) {
+  watchlistController?.abort()
+
+  const currentController = new AbortController()
+  watchlistController = currentController
+
+  isInWatchlist.value = false
+  watchlistError.value = null
+
+  if (!token) {
+    watchlistController = null
+    watchlistChecking.value = false
+    return
+  }
+
+  watchlistChecking.value = true
+
+  try {
+    const present = await apiFetch<boolean>(
+      `${WATCHLIST_BASE_PATH}/present/${encodeURIComponent(contentId)}`,
+      {
+        method: 'GET',
+        signal: currentController.signal,
+      },
+      token
+    )
+
+    if (requestNumber !== activeRequest) {
+      return
+    }
+
+    isInWatchlist.value = present === true
+  } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      return
+    }
+
+    if (requestNumber !== activeRequest) {
+      return
+    }
+
+    if (e instanceof ApiError && e.status === 404) {
+      isInWatchlist.value = false
+      return
+    }
+
+    isInWatchlist.value = false
+    watchlistError.value =
+      e instanceof Error
+        ? e.message
+        : 'Nie udało się sprawdzić, czy serial znajduje się na watchliście.'
+  } finally {
+    if (requestNumber === activeRequest) {
+      watchlistChecking.value = false
+    }
+
+    if (watchlistController === currentController) {
+      watchlistController = null
+    }
+  }
+}
+
+function resetWatchlistState() {
+  watchlistController?.abort()
+  watchlistController = null
+
+  watchlistLoading.value = false
+  watchlistChecking.value = false
+  watchlistError.value = null
+  isInWatchlist.value = false
+}
+
+async function fetchInitialRating(
+  contentId: string,
+  token: string | undefined,
+  requestNumber: number
+) {
+  ratingController?.abort()
+  ratingController = new AbortController()
+
+  selectedRating.value = null
+  hoveredRating.value = null
+  ratingError.value = null
+  ratingSuccess.value = null
+
+  if (!token) {
+    ratingLoading.value = false
+    return
+  }
+
+  ratingLoading.value = true
+
+  try {
+    const response = await apiFetch<UserRatingResponse | undefined>(
+      `/stars/${encodeURIComponent(contentId)}`,
+      {
+        method: 'GET',
+        signal: ratingController.signal,
+      },
+      token
+    )
+
+    if (requestNumber !== activeRequest) {
+      return
+    }
+
+    const stars = response?.stars
+
+    selectedRating.value =
+      typeof stars === 'number' &&
+      Number.isInteger(stars) &&
+      stars >= 1 &&
+      stars <= MAX_STARS
+        ? stars
+        : null
+  } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      return
+    }
+
+    if (requestNumber !== activeRequest) {
+      return
+    }
+
+    if (e instanceof ApiError && e.status === 404) {
+      selectedRating.value = null
+      return
+    }
+
+    ratingError.value =
+      e instanceof Error
+        ? e.message
+        : 'Nie udało się pobrać Twojej oceny serialu.'
+  } finally {
+    if (requestNumber === activeRequest) {
+      ratingLoading.value = false
+    }
+  }
+}
 
 async function submitRating(stars: number) {
   if (!id.value || ratingLoading.value) {
@@ -60,6 +219,9 @@ async function submitRating(stars: number) {
     ratingError.value = 'Musisz być zalogowana, aby ocenić serial.'
     return
   }
+
+  ratingController?.abort()
+  ratingController = null
 
   ratingLoading.value = true
   ratingError.value = null
@@ -87,8 +249,12 @@ async function submitRating(stars: number) {
 }
 
 function resetRatingState() {
+  ratingController?.abort()
+  ratingController = null
+
   selectedRating.value = null
   hoveredRating.value = null
+  ratingLoading.value = false
   ratingError.value = null
   ratingSuccess.value = null
 }
@@ -282,13 +448,18 @@ async function fetchSeriesFor(seriesId: string) {
   error.value = null
 
   resetRatingState()
+  resetWatchlistState()
 
   metadata.value = null
   content.value = null
   selectedSeasonId.value = null
 
   try {
-    const result = await fetchSeriesDetails(seriesId, getAccessToken())
+    const token = getAccessToken()
+
+    void fetchInitialWatchlistState(seriesId, token, requestNumber)
+
+    const result = await fetchSeriesDetails(seriesId, token)
 
     if (requestNumber !== activeRequest) {
       return
@@ -302,6 +473,8 @@ async function fetchSeriesFor(seriesId: string) {
     })[0]
 
     selectedSeasonId.value = firstSeason?.id ?? null
+
+    await fetchInitialRating(seriesId, token, requestNumber)
   } catch (e: unknown) {
     if (requestNumber !== activeRequest) {
       return
@@ -316,28 +489,67 @@ async function fetchSeriesFor(seriesId: string) {
 }
 
 async function handleWatchlist() {
-  if (!id.value || watchlistLoading.value) {
+  if (
+    !id.value ||
+    watchlistLoading.value ||
+    watchlistChecking.value
+  ) {
     return
   }
 
+  const token = getAccessToken()
+
+  if (!token) {
+    watchlistError.value =
+      'Musisz być zalogowana, aby zmienić watchlistę.'
+    return
+  }
+
+  watchlistController?.abort()
+
+  const currentController = new AbortController()
+  watchlistController = currentController
+
+  const contentId = id.value
+  const wasPresent = isInWatchlist.value
+
   watchlistLoading.value = true
-  error.value = null
+  watchlistError.value = null
 
   try {
-    /*
-     * Tutaj podepnij endpoint watchlisty:
-     *
-     * await addToWatchlist(
-     *   id.value,
-     *   getAccessToken(),
-     * )
-     */
+    await apiFetch<void>(
+      `${WATCHLIST_BASE_PATH}/${encodeURIComponent(contentId)}`,
+      {
+        method: wasPresent ? 'DELETE' : 'POST',
+        signal: currentController.signal,
+      },
+      token
+    )
 
-    isInWatchlist.value = !isInWatchlist.value
+    if (contentId !== id.value) {
+      return
+    }
+
+    isInWatchlist.value = !wasPresent
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : 'Nie udało się zmienić watchlisty.'
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      return
+    }
+
+    watchlistError.value =
+      e instanceof Error
+        ? e.message
+        : wasPresent
+          ? 'Nie udało się usunąć serialu z watchlisty.'
+          : 'Nie udało się dodać serialu do watchlisty.'
   } finally {
-    watchlistLoading.value = false
+    if (contentId === id.value) {
+      watchlistLoading.value = false
+    }
+
+    if (watchlistController === currentController) {
+      watchlistController = null
+    }
   }
 }
 
@@ -390,6 +602,8 @@ watch(
 
 onBeforeUnmount(() => {
   activeRequest++
+  ratingController?.abort()
+  watchlistController?.abort()
 })
 </script>
 
@@ -593,7 +807,14 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="btn btn-outline-primary"
-              :disabled="watchlistLoading"
+              :class="{ 'watchlist-active': isInWatchlist }"
+              :disabled="watchlistLoading || watchlistChecking"
+              :aria-pressed="isInWatchlist"
+              :title="
+                isInWatchlist
+                  ? 'Kliknij, aby usunąć serial z watchlisty'
+                  : 'Kliknij, aby dodać serial do watchlisty'
+              "
               @click="handleWatchlist"
             >
               <span class="button-icon">
@@ -601,13 +822,21 @@ onBeforeUnmount(() => {
               </span>
 
               {{
-                watchlistLoading
-                  ? 'Zapisywanie...'
-                  : isInWatchlist
-                    ? 'Na watchliście'
-                    : 'Dodaj do watchlisty'
+                watchlistChecking
+                  ? 'Sprawdzanie...'
+                  : watchlistLoading
+                    ? isInWatchlist
+                      ? 'Usuwanie...'
+                      : 'Dodawanie...'
+                    : isInWatchlist
+                      ? 'Na watchliście — usuń'
+                      : 'Dodaj do watchlisty'
               }}
             </button>
+          </div>
+
+          <div v-if="watchlistError" class="inline-error">
+            {{ watchlistError }}
           </div>
 
           <div v-if="error" class="inline-error">
@@ -991,6 +1220,19 @@ $font-family: 'Inter', sans-serif;
     color: black;
     background-color: $primary;
     border-color: $primary;
+  }
+}
+
+:deep(.btn-outline-primary.watchlist-active) {
+  color: $primary;
+  background: rgba($primary, 0.12);
+  border-color: rgba($primary, 0.72);
+  box-shadow: inset 0 0 0 1px rgba($primary, 0.08);
+
+  &:hover:not(:disabled) {
+    color: #fff;
+    background: rgba(170, 35, 35, 0.72);
+    border-color: rgba(255, 100, 100, 0.72);
   }
 }
 
