@@ -69,6 +69,15 @@ function handleSearch() {
             Szukaj
           </BButton>
         </form>
+
+        <BButton
+          v-if="auth.isLibraryAdmin"
+          variant="outline-primary"
+          @click="router.push({ name: 'AdminLibrary' })"
+        >
+          Biblioteka
+        </BButton>
+
         <span class="navbar-divider" aria-hidden="true" />
         <BButton
           class="logout-button"

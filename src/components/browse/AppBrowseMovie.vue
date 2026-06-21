@@ -333,7 +333,11 @@ const duration = computed(() => {
 })
 
 const keywords = computed(() => {
-  return metadata.value?.keywords?.map((keyword) => keyword.name).filter(Boolean) ?? []
+  return (
+    metadata.value?.keywords
+      ?.map((keyword) => keyword.value ?? keyword.name)
+      .filter((keyword): keyword is string => Boolean(keyword)) ?? []
+  )
 })
 
 const playbackUrl = computed(() => {

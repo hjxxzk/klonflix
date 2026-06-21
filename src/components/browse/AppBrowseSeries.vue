@@ -405,7 +405,11 @@ const releaseYear = computed(() => {
 })
 
 const keywords = computed<string[]>(() => {
-  return metadata.value?.keywords?.map((keyword) => keyword.name).filter(Boolean) ?? []
+  return (
+    metadata.value?.keywords
+      ?.map((keyword) => keyword.value ?? keyword.name)
+      .filter((keyword): keyword is string => Boolean(keyword)) ?? []
+  )
 })
 
 const availabilityLabel = computed(() => {
