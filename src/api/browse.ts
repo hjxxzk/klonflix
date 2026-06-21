@@ -5,7 +5,7 @@ export async function fetchLibraryMetadata(
   id: string,
   accessToken?: string,
 ): Promise<Metadata | null> {
-  const res = await apiFetch<Metadata>(`/library/${id}`, {}, accessToken)
+  const res = await apiFetch<Metadata>(`/library/${encodeURIComponent(id)}`, {}, accessToken)
   return (res as Metadata | undefined) ?? null
 }
 

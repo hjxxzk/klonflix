@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { ContentRequest, ContentResponse, ContentType, Genre } from '@/types/Content'
 import { GENRES } from '@/types/Content'
+import { fetchLibraryMetadata } from '@/api/browse'
+import { useAuthStore } from '@/stores/auth.ts'
 import { joinCommaSeparated, parseCommaSeparated } from '@/utils/form'
 
 const props = defineProps<{
@@ -15,6 +17,9 @@ const emit = defineEmits<{
   close: []
   save: [payload: ContentRequest]
 }>()
+
+const auth = useAuthStore()
+const isFormLoading = ref(false)
 
 const form = reactive({
   type: 'MOVIE' as ContentType,
@@ -38,19 +43,75 @@ const title = computed(() => {
   return form.type === 'MOVIE' ? 'Edytuj film' : 'Edytuj serial'
 })
 
-function resetForm(): void {
-  const content = props.content
+function extractKeywords(keywords: Array<{ value?: string; name?: string } | string> | undefined): string[] {
+  if (!keywords?.length) {
+    return []
+  }
 
-  form.type = content?.type ?? props.initialType ?? 'MOVIE'
-  form.title = content?.title ?? ''
-  form.description = content?.description ?? ''
-  form.thumbnailUrl = content?.thumbnailUrl ?? ''
-  form.genre = content?.genre ?? 'DRAMA'
-  form.releaseYear = content?.releaseYear ?? new Date().getFullYear()
+  return keywords
+    .map((keyword) => {
+      if (typeof keyword === 'string') {
+        return keyword
+      }
+
+      return keyword.value ?? keyword.name ?? ''
+    })
+    .filter(Boolean)
+}
+
+function applyContentToForm(content: ContentResponse, keywords: string[]): void {
+  form.type = content.type ?? props.initialType ?? 'MOVIE'
+  form.title = content.title ?? ''
+  form.description = content.description ?? ''
+  form.thumbnailUrl = content.thumbnailUrl ?? ''
+  form.genre = content.genre ?? 'DRAMA'
+  form.releaseYear = content.releaseYear ?? new Date().getFullYear()
+  form.keywords = joinCommaSeparated(keywords)
+  form.durationSeconds = content.durationSeconds ?? 0
+  form.videoUri = content.videoUri ?? ''
+  form.languages = joinCommaSeparated(content.languages ?? [])
+}
+
+function resetCreateForm(): void {
+  form.type = props.initialType ?? 'MOVIE'
+  form.title = ''
+  form.description = ''
+  form.thumbnailUrl = ''
+  form.genre = 'DRAMA'
+  form.releaseYear = new Date().getFullYear()
   form.keywords = ''
-  form.durationSeconds = content?.durationSeconds ?? 0
-  form.videoUri = content?.videoUri ?? ''
-  form.languages = joinCommaSeparated(content?.languages ?? [])
+  form.durationSeconds = 0
+  form.videoUri = ''
+  form.languages = ''
+}
+
+async function resetForm(): Promise<void> {
+  if (props.mode === 'create') {
+    resetCreateForm()
+    return
+  }
+
+  const content = props.content
+  if (!content) {
+    return
+  }
+
+  applyContentToForm(content, [])
+
+  const token = auth.user?.accessToken
+  if (!token) {
+    return
+  }
+
+  isFormLoading.value = true
+
+  try {
+    const metadata = await fetchLibraryMetadata(content.id, token)
+    const keywords = extractKeywords(metadata?.keywords)
+    applyContentToForm(content, keywords)
+  } finally {
+    isFormLoading.value = false
+  }
 }
 
 function handleSubmit(): void {
@@ -74,10 +135,10 @@ function handleSubmit(): void {
 }
 
 watch(
-  () => [props.visible, props.content, props.initialType] as const,
+  () => [props.visible, props.content?.id, props.mode, props.initialType] as const,
   ([visible]) => {
     if (visible) {
-      resetForm()
+      void resetForm()
     }
   },
 )
@@ -93,7 +154,9 @@ watch(
         </button>
       </header>
 
-      <form class="modal-form" @submit.prevent="handleSubmit">
+      <div v-if="isFormLoading" class="form-status">Ładowanie danych treści...</div>
+
+      <form v-show="!isFormLoading" class="modal-form" @submit.prevent="handleSubmit">
         <div v-if="mode === 'create'" class="mb-3">
           <label for="content-type" class="form-label">Typ treści</label>
           <select id="content-type" v-model="form.type" class="form-select">
@@ -193,7 +256,7 @@ watch(
 
         <footer class="modal-footer">
           <button type="button" class="btn btn-outline-primary" @click="emit('close')">Anuluj</button>
-          <button type="submit" class="btn btn-primary">Zapisz</button>
+          <button type="submit" class="btn btn-primary" :disabled="isFormLoading">Zapisz</button>
         </footer>
       </form>
     </div>
@@ -257,6 +320,12 @@ watch(
 .series-hint {
   margin: 1rem 0 0;
   color: rgba($white, 0.75);
+  font-size: 0.9rem;
+}
+
+.form-status {
+  margin-bottom: 1rem;
+  color: rgba($white, 0.65);
   font-size: 0.9rem;
 }
 </style>

@@ -1,5 +1,6 @@
 export interface Keyword {
-  name: string
+  name?: string
+  value?: string
 }
 
 export interface Genre {
