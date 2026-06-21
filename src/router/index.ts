@@ -5,6 +5,7 @@ import AppRegister from '@/components/register/AppRegister.vue'
 import AppOverview from '@/components/overview/AppOverview.vue'
 import AppBrowseSeries from '@/components/browse/AppBrowseSeries.vue'
 import AppBrowseMovie from '@/components/browse/AppBrowseMovie.vue'
+import AppSearch from '@/components/search/AppSearch.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -50,7 +51,7 @@ const router = createRouter({
     {
       path: '/search',
       name: 'Search',
-      component: AppBrowseSeries,
+      component: AppSearch,
       props: (route) => ({
         phrase: route.query.phrase,
       }),
