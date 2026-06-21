@@ -6,6 +6,7 @@ import AppOverview from '@/components/overview/AppOverview.vue'
 import AppBrowseSeries from '@/components/browse/AppBrowseSeries.vue'
 import AppBrowseMovie from '@/components/browse/AppBrowseMovie.vue'
 import AppSearch from '@/components/search/AppSearch.vue'
+import AppWatchlist from '@/components/watchlist/AppWatchlist.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -62,8 +63,7 @@ const router = createRouter({
     {
       path: '/watchlist',
       name: 'Watchlist',
-      component: AppBrowseSeries,
-      props: true,
+      component: AppWatchlist,
       meta: { requiresAuth: true },
     },
   ],
